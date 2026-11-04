@@ -1,0 +1,18 @@
+{
+  "name": "oc-learn",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./plugins/index.ts",
+    "./tui": "./plugins/tui.ts"
+  },
+  "dependencies": {
+    "@opencode/plugin": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "solid-js": "^1.9.18",
+    "typescript": "latest"
+  }
+}
