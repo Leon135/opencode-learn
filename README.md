@@ -35,7 +35,7 @@ Requires OpenCode v2. Clone this repo anywhere, then load the package in one of 
 
 ```jsonc
 {
-  "plugins": ["/home/you/code/oc-learn"]
+  "plugins": ["/home/you/code/oc-learn"],
 }
 ```
 
@@ -66,15 +66,15 @@ md-link keeps its own state next to it in `~/.config/opencode/md-link-state.json
 
 No synchronous HTML/KaTeX transport ships: a plugin-POSTed page is never displayed (the chat draws only `openchamber_render` tool-call pages) and an inlined-KaTeX page exceeds OpenChamber's `render.html` 200 000-character page cap.
 
-**Form mode** (TUI, and `auto` when chat detection fails) is a hybrid: the session form carries only lettered options (A, B, C…, plus "I don't know") and a note field, with the fixed title "Quiz — answer the question shown in chat". The full question, its details and the lettered option texts come back in the `quiz_ask` result, which tells the model to post that block as a chat message (markdown; math renders per the TUI's own pipeline). The form opens before that message can appear, so the user may see the lettered form first — an accepted ordering wrinkle of the ruling. Form grading uses the same letter/value resolution as chat.
+**Form mode** (TUI, and `auto` when chat detection fails) is a hybrid: the session form carries only lettered options (A, B, C…, plus "...?") and a note field, with the fixed title "Quiz — answer the question shown in chat". The full question, its details and the lettered option texts come back in the `quiz_ask` result, which tells the model to post that block as a chat message (markdown; math renders per the TUI's own pipeline). The form opens before that message can appear, so the user may see the lettered form first — an accepted ordering wrinkle of the ruling. Form grading uses the same letter/value resolution as chat.
 
 The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
 
 ```jsonc
 {
   "plugins": [
-    { "package": "/home/you/code/oc-learn", "options": { "mode": "auto" } }
-  ]
+    { "package": "/home/you/code/oc-learn", "options": { "mode": "auto" } },
+  ],
 }
 ```
 

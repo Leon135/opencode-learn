@@ -3,7 +3,7 @@ import { setupMdLinkTui } from "./md-link/tui.ts"
 import { setupVizTui } from "./viz/tui.ts"
 
 export default Plugin.define({
-  id: "oc-learn.tui",
+  id: "opencode-learn",
   async setup(ctx) {
     const cleanups: (Plugin.Cleanup | void)[] = []
     cleanups.push(await setupVizTui(ctx))
