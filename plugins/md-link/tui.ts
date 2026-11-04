@@ -8,7 +8,8 @@
  *
  * Commands (all purely client-side — nothing is ever sent to the LLM):
  *   ctrl+alt:m / /md-link [dir]   toggle mirroring for the focused session;
- *                                 ON backfills the newest completed reply
+ *                                 ON backfills up to 10 recent messages
+ *                                 (replies + your prompts)
  *   /md-link-dir                  set the default output directory
  *   /md-link-keep                 keep only the N newest replies (empty = all);
  *                                 existing mirrors are trimmed immediately
@@ -37,10 +38,14 @@ import {
   pruneMirror,
   saveState,
   touchMirror,
+  userPromptBlock,
 } from "./core.ts"
 
 type DirResult = { ok: true; abs: string } | { ok: false; error: string }
 type ToastVariant = "info" | "success" | "warning" | "error"
+
+/** Cap on how many historical messages a single enable may backfill (V1 parity). */
+const MAX_CATCHUP = 10
 
 /** Validate a user-supplied output dir. Must already exist and be writable. */
 function validateDir(raw: string, pwd: string): DirResult {
@@ -78,8 +83,14 @@ function extractArg(input: unknown): string {
 }
 
 /**
- * Backfill the newest COMPLETED assistant reply via the plugin client
- * (ctx.client.message.list = GET /api/session/:id/message, newest first).
+ * Backfill recent history when mirroring is enabled for a session: up to
+ * MAX_CATCHUP newest messages, BOTH assistant replies and user prompts,
+ * appended oldest-first so the mirror stays chronological (V1 catch-up parity).
+ *
+ * The page is newest-first via the plugin client
+ * (ctx.client.message.list = GET /api/session/:id/message). Walking stops at
+ * the first already-mirrored marker, so a live event that won the race never
+ * produces a duplicate block.
  *
  * Replies still streaming when the toggle fires are skipped: their
  * time.created is too recent, and live ordinals will finish them anyway.
@@ -90,24 +101,34 @@ async function backfillLatestTurn(
   file: string,
   keep: number | null,
   enabledAt: number,
-): Promise<boolean> {
+): Promise<number> {
+  let written = 0
   try {
     const { data: items } = await client.message.list({
       sessionID,
-      type: "assistant",
       order: "desc",
       limit: 50,
     })
+    const pending: { id: string; text: string }[] = []
     for (const m of items) {
+      if (m.type !== "assistant" && m.type !== "user") continue
       const created = Number(m.time?.created ?? 0)
-      if (created && enabledAt - created < 15_000) continue // likely still streaming
+      if (m.type === "assistant" && created && enabledAt - created < 15_000) continue // likely still streaming
       const text = messageText(m)
       if (!text) continue
-      if (hasBlock(file, m.id)) break // already mirrored
-      return appendMessage(file, { text, markerKey: `${m.id}#backfill` }, keep) === "written"
+      if (hasBlock(file, m.id)) break // already mirrored — everything older is too
+      pending.push({
+        id: `${m.id}#backfill`,
+        text: m.type === "user" ? userPromptBlock(text) : text,
+      })
+      if (pending.length >= MAX_CATCHUP) break
+    }
+    for (let i = pending.length - 1; i >= 0; i--) {
+      const res = appendMessage(file, { text: pending[i].text, markerKey: pending[i].id, replace: true }, keep)
+      if (res === "written") written++
     }
   } catch {}
-  return false
+  return written
 }
 
 export async function setupMdLinkTui(ctx: Plugin.Context): Promise<Plugin.Cleanup> {
@@ -165,8 +186,8 @@ export async function setupMdLinkTui(ctx: Plugin.Context): Promise<Plugin.Cleanu
       const backfilled = await backfillLatestTurn(ctx.client, sessionID, file, st.keep, Date.now())
       const tag = st.persist ? " (persistent)" : ""
       toast(
-        backfilled
-          ? `Live mirror ON, latest reply backfilled → ${short(file)}${tag}`
+        backfilled > 0
+          ? `Live mirror ON, backfilled ${backfilled} message${backfilled === 1 ? "" : "s"} → ${short(file)}${tag}`
           : `Live mirror ON → ${file}${tag}`,
       )
     } catch (e: any) {

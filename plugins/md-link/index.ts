@@ -23,31 +23,19 @@
 import type { Plugin } from "@opencode/plugin"
 import {
   appendMessage,
+  callout,
   hasBlock,
   isEnabled,
   loadState,
   mirrorFile,
   touchMirror,
+  userPromptBlock,
 } from "./core.ts"
 
 /** Streaming cadence: rewrite an in-flight reply block at most this often. */
 const DELTA_WRITE_MS = 2_500
 /** Wait before re-subscribing after the event stream exits unexpectedly. */
 const RESUBSCRIBE_MS = 5_000
-
-/** Skill declarations are system-injected context, not learner prose. */
-function stripSkillBlocks(text: string): string {
-  return text.replace(/<skill\b([^>]*)>[\s\S]*?<\/skill>/g, (_m, attrs: string) => {
-    const name = /name="([^"]+)"/.exec(attrs)?.[1]
-    return `[SKILL loaded: ${name ?? "(unknown)"}]`
-  })
-}
-
-function callout(type: string, title: string, bodyLines: string[]): string {
-  const lines = [`> [!${type}] ${title}`]
-  for (const line of bodyLines) lines.push(line.length === 0 ? ">" : `> ${line}`)
-  return lines.join("\n")
-}
 
 /** Append one block, keeping the existing text when the key is already mirrored. */
 function mirrorBlock(file: string, key: string, text: string, keep: number | null): void {
@@ -159,8 +147,8 @@ export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
       if (event.type === "session.inbox.enqueued") {
         const item = event.data.item
         if (item.type !== "user") return
-        const text = stripSkillBlocks(String(item.payload.text ?? "").trim())
-        if (text) mirrorBlock(file, `${event.data.inboxID}`, callout("quote", "YOU", text.split("\n")), st.keep)
+        const text = String(item.payload.text ?? "").trim()
+        if (text) mirrorBlock(file, `${event.data.inboxID}`, userPromptBlock(text), st.keep)
         return
       }
 

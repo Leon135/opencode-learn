@@ -5,9 +5,8 @@
  *   plugins/md-link/index.ts (server: mirrors assistant replies)
  *   plugins/md-link/tui.ts   (TUI: ctrl+alt+m / /md-link toggle)
  *
- * This repo is cloned as a project's `.opencode` directory; plugins/md-link/
- * auto-loads server-side as a package dir, while tui.ts needs an explicit
- * entry in cli.json.
+ * The package's `.` entry (plugins/index.ts) registers the server part; the
+ * TUI part loads through the package's `./tui` export (plugins/tui.ts).
  *
  * State file contract (~/.config/opencode/md-link-state.json):
  *   {
@@ -18,8 +17,8 @@
  *   }
  *
  * With persist=true, TUI exit keeps this project's mirror files AND their
- * session entries, so the poller resumes mirroring into the same files on
- * the next launch. Explicit /md-link OFF always deletes regardless.
+ * session entries, so the event subscription resumes mirroring into the same
+ * files on the next launch. Explicit /md-link OFF always deletes regardless.
  *
  * Mirror file contract (<dir>/<sessionID>.md):
  *   Contains ONLY response blocks — no frontmatter, titles, or separators:
@@ -133,6 +132,26 @@ export function messageText(m: any): string {
   }
   if (!text && typeof m?.text === "string") text = m.text
   return text.trim()
+}
+
+/** Skill declarations are system-injected context, not learner prose. */
+export function stripSkillBlocks(text: string): string {
+  return text.replace(/<skill\b([^>]*)>[\s\S]*?<\/skill>/g, (_m, attrs: string) => {
+    const name = /name="([^"]+)"/.exec(attrs)?.[1]
+    return `[SKILL loaded: ${name ?? "(unknown)"}]`
+  })
+}
+
+/** Obsidian callout block: `> [!type] title` + quoted body lines. */
+export function callout(type: string, title: string, bodyLines: string[]): string {
+  const lines = [`> [!${type}] ${title}`]
+  for (const line of bodyLines) lines.push(line.length === 0 ? ">" : `> ${line}`)
+  return lines.join("\n")
+}
+
+/** User-prompt block, identical for the live event path and history backfill. */
+export function userPromptBlock(text: string): string {
+  return callout("quote", "YOU", stripSkillBlocks(text.trim()).split("\n"))
 }
 
 /** True if the file contains a block whose marker starts with `<!-- msg:<key>` */

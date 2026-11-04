@@ -97,15 +97,6 @@ function optionRef(options: QuizOption[], index: number): string {
   return `${index}. ${opt ? opt.label : "(unknown)"}`
 }
 
-/** First line of a (possibly multi-line) question — used as the form
- * chrome title. Never truncated: an ellipsized form title IS the "quiz cuts
- * off my question" bug; the TUI can wrap or clip it visually, we must not.
- * The full question (all lines) is carried in the field `title` so the TUI
- * renders every line in the field block, not just the header. */
-function firstLine(text: string): string {
-  return text.split("\n")[0].trim()
-}
-
 export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
   let client: OpenCodeClient | undefined
   const forms = async () =>
