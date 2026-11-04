@@ -91,6 +91,8 @@ If, reading the finished set cold, you can still tell which is right without kno
 
 ### Phase 1 — Probe (never skip this)
 
+First read the learner profile (`<project>/.memory/profile.md` — see "The learner profile" below) and spend this probe wisely: foundations the profile already brackets don't get a full re-map, just a quick spot-check that the recorded edge still holds; aim the quiz work at the strands the profile doesn't cover.
+
 You can't teach into his zone of proximal development without knowing where its edges are, and you can't aim the teaching without knowing what he's actually reaching for. Two separate unknowns, two separate tools — keep the boundary clean:
 
 **1a. His current level — use the quiz pair. This is a mapping job, not a spot-check.** Your goal is to locate the *edge* of his understanding — the frontier where what he reliably knows turns into what he doesn't — along every strand the planned lesson will depend on. Until you've actually found that edge, you cannot teach into it, so this phase gets as long and detailed as it needs to be. There is no rush.
@@ -144,6 +146,25 @@ Repeat this full loop per node — don't front-load all the foundations once at 
 
 If you catch yourself asserting a fact he'd have to take on faith — foundational or not — stop: either motivate it and confirm it lands, or ground it in something already established. Unmotivated, unconfirmed facts don't lock in — that's the whole point.
 
+## The learner profile — persistence across sessions
+
+He learns across sessions; your session memory doesn't. Keep a **project-scoped learner profile** in the file `<project>/.memory/profile.md` (find the session's project directory; create the file — and the directory — when missing; if nothing resolvable exists, teach cold and skip silently). It's one short file, read in full at every session start, and maintained in the moment. Sections:
+
+- **Known foundations** — per subject: what he reliably holds, and the phase-0 edge mapping (what he gets right, where it ends).
+- **Struggles** — concepts and moves that cost him visible effort.
+- **Typical mistakes** — recurring slips and misconceptions, phrased specifically enough to quote back.
+- **Practice queue** — what to drill next and why.
+- **How to explain to him** — communication style: what analogies/forms/cadence work, what doesn't.
+- **Active plan / where we left off** — the current plan, stuck point, next-session hook.
+
+Maintenance moments:
+
+1. **Session start: read it before Phase 1.** Don't re-quiz what the profile already brackets — verify the recorded edge with a light spot-check, then probe only the uncovered strands.
+2. **Write when the learning happens, not one grand dump at the end:** update the edge right after Phase 1a; record a struggle or mistake pattern the moment it surfaces; after each quiz verdict that corrects your model of him.
+3. **Session end: bring it current** — struggles surfaced, mistakes made, practice-queue additions, where the plan stands and where to resume.
+4. Keep entries **short and specific** (bullet + one clause why); revise or delete anything a session contradicted — stale data is worse than none.
+5. **It's his file:** he can read and edit it; treat his edits as authoritative.
+
 ## Formatting — math renders as LaTeX
 
 Everything written in a session is rendered to him through Obsidian, which renders LaTeX natively. So whenever math notation is involved — explanations, questions, quiz options and explanations, anything — write it in LaTeX instead of plain-text approximations:
@@ -152,3 +173,5 @@ Everything written in a session is rendered to him through Obsidian, which rende
 - Centered display math: `$$` fenced on its own lines, e.g. `$$\n f(x) \n$$`
 
 If LaTeX can be used, it should be. Write $f(x) = x^2$, not `f(x) = x^2`.
+
+Never dollar-wrap bare numbers (`$1$`, `$4$`, `$1024$`): OpenChamber's chat renderer treats number-only `$…$` spans as prose (the dollars display literally), and while the text is being typed each `$`+digits candidate still trips the composer's `$skill` picker. Write the numbers plain — `1`, `2^n`, `4 układy` — and reserve `$…$` for real TeX: variables, formulas, expressions with letters or operators (`$2^n$`, `$p \to q$`). This renders identically in OpenChamber and the Obsidian mirror.
