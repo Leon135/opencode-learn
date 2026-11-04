@@ -1,7 +1,7 @@
 /**
- * oc-learn.tui — TUI command for the viz publish directory.
+ * opencode-learn.tui — TUI command for the viz publish directory.
  *
- * The oc-learn server plugin reads defaultDir from
+ * The opencode-learn server plugin reads defaultDir from
  * ~/.config/opencode/viz-state.json on every publish (empty = the project dir
  * captured at plugin setup, ctx.location.directory, + viz/). This module adds
  * the /viz-dir command that edits it:

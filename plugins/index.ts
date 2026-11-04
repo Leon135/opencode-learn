@@ -6,7 +6,7 @@ import { setupSkills } from "./skills.ts"
 import { setupViz } from "./viz/index.ts"
 
 export default Plugin.define({
-  id: "oc-learn",
+  id: "opencode-learn",
   async setup(ctx) {
     const cleanups: (Plugin.Cleanup | void)[] = []
     cleanups.push(await setupAgents(ctx))

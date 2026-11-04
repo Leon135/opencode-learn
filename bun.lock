@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "oc-learn",
+      "name": "opencode-learn",
       "dependencies": {
         "@opencode/client": "latest",
         "@opencode/plugin": "latest",

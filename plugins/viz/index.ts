@@ -17,7 +17,7 @@ import {
 } from "./common.ts"
 
 /**
- * oc-learn (viz tools) — the visual maker authoring loops as v2 custom tools.
+ * opencode-learn (viz tools) — the visual maker authoring loops as v2 custom tools.
  *
  * Ported from the pi visual-tools extension (extensions/visual-tools/):
  *   svg      → write_svg / edit_svg / render_svg   (rsvg-convert, fallback magick)

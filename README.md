@@ -13,10 +13,10 @@ Differences between this repo from upstream is listed in [differences from upstr
 
 ## What's in it
 
-One plugin package, `oc-learn` (the repo root). Its `package.json` maps two exports to the plugin parts:
+One plugin package, `opencode-learn` (the repo root). Its `package.json` maps two exports to the plugin parts:
 
-- `.` → `plugins/index.ts` — the **server** part, plugin id `oc-learn`. It registers the bundled agents and skills at setup, adds the quiz and viz tools, and runs the md-link mirror.
-- `./tui` → `plugins/tui.ts` — the **TUI** part, plugin id `oc-learn.tui`. It registers the slash commands and the `ctrl+alt:m` binding.
+- `.` → `plugins/index.ts` — the **server** part, plugin id `opencode-learn`. It registers the bundled agents and skills at setup, adds the quiz and viz tools, and runs the md-link mirror.
+- `./tui` → `plugins/tui.ts` — the **TUI** part, plugin id `opencode-learn.tui`. It registers the slash commands and the `ctrl+alt:m` binding.
 
 Inside:
 
@@ -35,7 +35,7 @@ Requires OpenCode v2. Clone this repo anywhere, then load the package in one of 
 
 ```jsonc
 {
-  "plugins": ["/home/you/code/oc-learn"],
+  "plugins": ["/home/you/code/opencode-learn"],
 }
 ```
 
@@ -44,8 +44,8 @@ Relative paths resolve from the config file that contains the entry, and `file:/
 **Auto-discovery** — place the package directory directly inside a discovered plugins directory:
 
 ```text
-<project>/.opencode/plugins/oc-learn/
-~/.config/opencode/plugins/oc-learn/
+<project>/.opencode/plugins/opencode-learn/
+~/.config/opencode/plugins/opencode-learn/
 ```
 
 Immediate package directories under those locations load automatically. A `plugins/` directory beside a project-root `opencode.json(c)` is **not** discovered automatically — use `.opencode/plugins/` or an explicit entry.
@@ -73,7 +73,7 @@ The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
 ```jsonc
 {
   "plugins": [
-    { "package": "/home/you/code/oc-learn", "options": { "mode": "auto" } },
+    { "package": "/home/you/code/opencode-learn", "options": { "mode": "auto" } },
   ],
 }
 ```
@@ -102,7 +102,7 @@ The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
 
 New in this port:
 
-- **Single plugin package** — the server and TUI parts ship as one `oc-learn` package loaded through the `plugins` config (or plugin-directory auto-discovery); agents and skills are registered by the plugin itself. Upstream was `git clone` as `.pi` only.
+- **Single plugin package** — the server and TUI parts ship as one `opencode-learn` package loaded through the `plugins` config (or plugin-directory auto-discovery); agents and skills are registered by the plugin itself. Upstream was `git clone` as `.pi` only.
 - **Configurable viz output** — `viz-state.json` (`defaultDir`) sends published visuals to any directory; upstream always wrote to `<cwd>/viz`.
 - **md-link TUI commands** — `ctrl+alt:m` / `/md-link` with per-session enable, plus `/md-link-dir`, `/md-link-keep`, and `/md-link-persist`; upstream had `/md-log` / `/md-unlog` commands only.
 
