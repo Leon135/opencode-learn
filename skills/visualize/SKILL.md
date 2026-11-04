@@ -20,7 +20,7 @@ Do NOT visualize when prose or a single equation already carries it. A decorativ
 
 ## Choose the maker
 
-Two makers, discovered from `.opencode/agents/`:
+Two makers, registered by the plugin at setup:
 
 - **`mermaid-maker`** — structural/relational visuals: dependency graphs, flowcharts, sequence/state/ER/class diagrams, trees, mindmaps, timelines. This is the default and fits the dependency-graph pedagogy directly.
 - **`svg-maker`** — spatial/geometric visuals Mermaid can't lay out: exact coordinates, geometry figures, number lines, vectors, plots, custom shapes.

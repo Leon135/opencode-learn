@@ -9,8 +9,8 @@
  *   /viz-dir <path>     set it directly; relative paths resolve against the
  *                       session's project at publish time
  *
- * Empty input in the dialog clears the override. Like every TUI module, this
- * file is not auto-discovered — install.sh registers it in cli.json.
+ * Empty input in the dialog clears the override. This module loads through
+ * the package's `./tui` export, reached from plugins/tui.ts.
  */
 
 import { readFileSync, writeFileSync } from "fs"

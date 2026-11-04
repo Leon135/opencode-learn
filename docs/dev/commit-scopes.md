@@ -7,16 +7,17 @@ Format: `type(scope): summary` or `type: summary`.
 
 ## Scopes
 
-| Scope       | Covers                                              |
-| ----------- | --------------------------------------------------- |
-| `learn-quiz` | `plugins/quiz/**`                            |
-| `md-link`   | `plugins/md-link/**`                                 |
-| `viz`       | `plugins/viz/**`, `lib/viz-common.ts` |
-| `agents`    | `agents/**`                                          |
-| `skills`    | `skills/**`                                          |
+| Scope        | Covers                                       |
+| ------------ | -------------------------------------------- |
+| `learn-quiz` | `plugins/quiz.ts`                            |
+| `md-link`    | `plugins/md-link/**`                         |
+| `viz`        | `plugins/viz/**`                             |
+| `agents`     | `plugins/agents.ts`                          |
+| `skills`     | `skills/**`                                  |
 
-No scope = repo-wide: `install.sh` / `uninstall.sh`, README, `.gitignore`,
-`docs/`, and any change that genuinely spans several components.
+No scope = repo-wide: `plugins/index.ts` / `plugins/tui.ts`, `package.json`,
+README, `.gitignore`, `docs/`, and any change that genuinely spans several
+components.
 
 ## Rules
 
