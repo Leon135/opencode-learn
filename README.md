@@ -1,15 +1,19 @@
-# learn
+# opencode-learn
 
 [![video](assets/thumbnail.png)](https://www.youtube.com/watch?v=kzcI5F4tGiU)
 
-This is a port of [amosblomqvist's learning system](https://github.com/amosblomqvist/learn) — his AI setup from the video [How I Use AI to Learn Things](https://www.youtube.com/watch?v=kzcI5F4tGiU), originally built as [pi](https://github.com/earendil-works/pi) configuration.
+An AI teaching system packaged as an [OpenCode v2](https://opencode.ai/v2/docs/) plugin. The `teach` skill probes what you already know, plans a dependency map, then teaches node by node — checking each node lands with a graded quiz before building on top of it.
 
-The teaching philosophy, the skills, and the system design are all his; this repo adapts that pi configuration to [OpenCode v2](https://opencode.ai/v2/docs/).
+## Where it comes from
 
-Differences between this repo from upstream is listed in [differences from upstream](#differences-from-upstream) section
+Three generations of the same system:
+
+1. **[amosblomqvist/learn](https://github.com/amosblomqvist/learn)** — the original, built as [pi](https://github.com/earendil-works/pi) configuration. The teaching philosophy, the skills and the system design are all his, from the video [How I Use AI to Learn Things](https://www.youtube.com/watch?v=kzcI5F4tGiU).
+2. **[FAZuH/oc-learn](https://github.com/FAZuH/oc-learn)** — a port of that system to OpenCode.
+3. **This repository** — takes FAZuH's port and brings it up to date with the current OpenCode v2 plugin API, adds [OpenChamber](https://github.com/openchamber/openchamber) support, and adds a simple cross-session memory.
 
 > [!WARNING]
-> This repo is still in experimental phase. Some stuffs may not work/break.
+> Experimental — some things may not work or may break.
 
 ## What's in it
 
@@ -60,13 +64,24 @@ Visuals publish into the session project's `viz/` by default — the project dir
 
 md-link keeps its own state next to it in `~/.config/opencode/md-link-state.json` (`defaultDir`, `keep`, `persist`, and the enabled sessions).
 
+## Memory
+
+Teaching spans sessions; session context does not. The `teach` skill keeps a **project-scoped learner profile** at `<project>/.memory/profile.md` — one short file, read in full at session start and updated as the session goes rather than in one dump at the end:
+
+- **Known foundations** — per subject: what you reliably hold, and where your edge is
+- **Struggles** — concepts and moves that cost visible effort
+- **Typical mistakes** — recurring slips, phrased specifically enough to quote back
+- **Practice queue** — what to drill next and why
+- **How to explain to you** — which analogies and cadence work, and which don't
+- **Active plan / where we left off** — the current plan, stuck point, next-session hook
+
+The file is yours: you can read and edit it, and the skill treats your edits as authoritative. It stays local — `.memory/` is gitignored.
+
 ## Quiz modes
 
-`quiz_ask` has two transports. **Chat-UI mode** returns the question plus a ready `openui-lang` program for `openchamber_render`; OpenChamber renders it, returns the chosen letter(s) and any note, and the model relays them to `quiz_grade(selected, note)`. The question, its details and the lettered option texts all render inside the callout (markdown, so LaTeX works there), while the Choice buttons stay plain letters (A, B, C…); a letter resolves to the shuffled option value through the same letter/value logic as before. Without that tool the result includes a plain-text lettered fallback.
+`quiz_ask` has two transports. **Chat-UI mode** returns the question plus a ready `openui-lang` program for `openchamber_render`; [OpenChamber](https://github.com/openchamber/openchamber) renders it, returns the chosen letter(s) and any note, and the model relays them to `quiz_grade(selected, note)`. The question, its details and the lettered option texts all render inside the callout (markdown, so LaTeX works there), while the Choice buttons stay plain letters (A, B, C…); a letter resolves to the shuffled option value through the same letter/value logic as before. Without that tool the result includes a plain-text lettered fallback.
 
-No synchronous HTML/KaTeX transport ships: a plugin-POSTed page is never displayed (the chat draws only `openchamber_render` tool-call pages) and an inlined-KaTeX page exceeds OpenChamber's `render.html` 200 000-character page cap.
-
-**Form mode** (TUI, and `auto` when chat detection fails) is a hybrid: the session form carries only lettered options (A, B, C…, plus "...?") and a note field, with the fixed title "Quiz — answer the question shown in chat". The full question, its details and the lettered option texts come back in the `quiz_ask` result, which tells the model to post that block as a chat message (markdown; math renders per the TUI's own pipeline). The form opens before that message can appear, so the user may see the lettered form first — an accepted ordering wrinkle of the ruling. Form grading uses the same letter/value resolution as chat.
+**Form mode** (TUI, and `auto` when chat detection fails) is a hybrid: the session form carries only lettered options (A, B, C…, plus "...?") and a note field, with the fixed title "Quiz — answer the question shown in chat". The full question, its details and the lettered option texts come back in the `quiz_ask` result, which tells the model to post that block as a chat message (markdown; math renders per the TUI's own pipeline). The form opens before that message can appear, so you may see the lettered form first — an accepted ordering wrinkle of the design. Form grading uses the same letter/value resolution as chat.
 
 The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
 
@@ -79,6 +94,8 @@ The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
 ```
 
 `auto` detects `openchamber_render` in the session's tool catalog (memoized per session): present → chat, absent → form. If detection fails or has not run yet, it degrades to chat — a plain-text question still works there, while an invisible form does not.
+
+No synchronous HTML/KaTeX transport ships: a plugin-POSTed page is never displayed (the chat draws only `openchamber_render` tool-call pages) and an inlined-KaTeX page exceeds OpenChamber's `render.html` 200 000-character page cap.
 
 ## Requirements
 
@@ -98,23 +115,26 @@ The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
 - The makers render but the tools return a path, not an image — `render_*` returns the PNG path and the maker opens it with `read` to inspect. Same verify-by-looking loop, one extra step.
 - You can run the system without subagents: the main session does the teaching. You lose the researcher (truth verification) and the generated visuals.
 
-## Differences from upstream
+## Differences from the original
 
-New in this port:
+Carried over from the OpenCode port (FAZuH's work, relative to the pi original):
 
-- **Single plugin package** — the server and TUI parts ship as one `opencode-learn` package loaded through the `plugins` config (or plugin-directory auto-discovery); agents and skills are registered by the plugin itself. Upstream was `git clone` as `.pi` only.
-- **Configurable viz output** — `viz-state.json` (`defaultDir`) sends published visuals to any directory; upstream always wrote to `<cwd>/viz`.
-- **md-link TUI commands** — `ctrl+alt:m` / `/md-link` with per-session enable, plus `/md-link-dir`, `/md-link-keep`, and `/md-link-persist`; upstream had `/md-log` / `/md-unlog` commands only.
-
-Behavior changes:
-
-- **quiz is two tools** — `quiz_ask` poses the question, `quiz_grade` carries the answer. The TUI shows raw tool arguments, so splitting at the answer boundary makes the correct answer structurally invisible until after you answer (upstream hid it inside the popup renderer).
+- **Configurable viz output** — `viz-state.json` (`defaultDir`) sends published visuals to any directory; the original always wrote to `<cwd>/viz`.
+- **md-link TUI commands** — `ctrl+alt:m` / `/md-link` with per-session enable, plus `/md-link-dir`, `/md-link-keep`, and `/md-link-persist`; the original had `/md-log` / `/md-unlog` commands only.
+- **quiz is two tools** — `quiz_ask` poses the question, `quiz_grade` carries the answer. The TUI shows raw tool arguments, so splitting at the answer boundary makes the correct answer structurally invisible until after you answer (the original hid it inside the popup renderer).
 - **No `ask-user-question` extension** — OpenCode v2's built-in `question` tool covers non-graded questions.
-- **No subagent extension** — v2's built-in `subagent` tool replaces `pi-interactive-subagents` (upstream's recommended tmux-only dependency).
-- **Render-and-inspect via path** — `render_*` returns the PNG path and the maker opens it with `read` (upstream returned the image inline).
+- **No subagent extension** — v2's built-in `subagent` tool replaces `pi-interactive-subagents` (the original's recommended tmux-only dependency).
+- **Render-and-inspect via path** — `render_*` returns the PNG path and the maker opens it with `read` (the original returned the image inline).
 - **Linux-first rendering** — `mmdc` / `rsvg-convert` from PATH instead of a bundled mermaid-cli and macOS Chrome paths.
+
+New in this repository:
+
+- **Current OpenCode v2 plugin API** — brought up to date with the current `@opencode/plugin` surface: one package entry carrying both the server and TUI parts (replacing FAZuH's symlinking `install.sh`/`uninstall.sh`), session event subscription instead of message polling, and the plugin client instead of spawning `opencode2`. Agents and skills are registered by the plugin itself.
+- **OpenChamber support** — [OpenChamber](https://github.com/openchamber/openchamber)-aware quiz transport: chat-UI mode auto-detects `openchamber_render` and renders the question as an interactive callout with lettered buttons.
+- **Simple memory** — the project-scoped learner profile at `.memory/profile.md`, so the teacher picks up where it left off across sessions. See [Memory](#memory).
 
 ## Credits
 
-- **amosblomqvist** — original system, teaching philosophy, and video: [amosblomqvist/learn](https://github.com/amosblomqvist/learn) (pi configuration)
-- This repository — OpenCode v2 port of that pi configuration; the port mechanics (the plugin package, chat-UI/forms quiz, TUI commands) are the only new work here
+- **[amosblomqvist](https://github.com/amosblomqvist)** — original system, teaching philosophy, and the video: [amosblomqvist/learn](https://github.com/amosblomqvist/learn) (pi configuration)
+- **[FAZuH](https://github.com/FAZuH)** — the OpenCode port: [FAZuH/oc-learn](https://github.com/FAZuH/oc-learn)
+- This repository — fork of that port, updated for the current OpenCode v2, with OpenChamber support and the learner profile added

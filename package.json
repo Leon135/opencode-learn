@@ -1,15 +1,40 @@
 {
-  "name": "opencode-learn",
-  "version": "2.0.0",
-  "private": true,
+  "name": "@leon135/opencode-learn",
+  "version": "0.1.0",
+  "description": "Opencode AI learning system.",
   "type": "module",
   "exports": {
     ".": "./plugins/index.ts",
     "./tui": "./plugins/tui.ts"
   },
+  "files": [
+    "plugins",
+    "skills",
+    "assets"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leon135/opencode-learn.git"
+  },
+  "keywords": [
+    "opencode",
+    "learn"
+  ],
+  "author": "leon135",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/leon135/opencode-learn/issues"
+  },
+  "homepage": "https://github.com/leon135/opencode-learn#readme",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "@opencode/client": "latest",
-    "@opencode/plugin": "latest"
+    "@opencode/client": "^2.2.5",
+    "@opencode/plugin": "^2.2.5"
   },
   "devDependencies": {
     "@types/node": "latest",

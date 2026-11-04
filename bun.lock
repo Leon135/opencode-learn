@@ -3,10 +3,10 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "opencode-learn",
+      "name": "@leon135/opencode-learn",
       "dependencies": {
-        "@opencode/client": "latest",
-        "@opencode/plugin": "latest",
+        "@opencode/client": "^2.2.5",
+        "@opencode/plugin": "^2.2.5",
       },
       "devDependencies": {
         "@types/node": "latest",
