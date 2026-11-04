@@ -15,8 +15,17 @@
  *                stashed selection (exact-set match; "I don't know" is its own
  *                outcome) and returns the verdict + explanation.
  *
- * Transport: the server plugin context exposes no form API, so forms go
- * through the official OpenCode client (`OpenCode.make` + `Service.discover`):
+ * Transport, as shipped:
+ *   chat / auto (openchamber_render detected): quiz_ask returns a ready
+ *     openui-lang program; the model renders it with openchamber_render
+ *     (awaitAnswer) and relays the chosen letter(s) + any note to
+ *     quiz_grade (selected, note).
+ *   form / TUI (auto with no render tool): quiz_ask opens a slim session form
+ *     — lettered options + a note field, no question text — and returns the
+ *     full question block for the model to post in the chat.
+ *
+ * The server plugin context exposes no form API, so forms go through the
+ * official OpenCode client (`OpenCode.make` + `Service.discover`):
  *   POST   /api/session/:sid/form           {title, fields:[{key,type,title,description,options}]}
  *   GET    /api/session/:sid/form/:fid      -> {state: {status: pending|answered|cancelled, answer?}}
  *   POST   /api/session/:sid/form/:fid/reply {answer: {key: value}}
@@ -31,6 +40,9 @@ import type { Plugin } from "@opencode/plugin"
 const DONT_KNOW = "__dont_know__"
 const POLL_MS = 400
 const TIMEOUT_MS = 10 * 60_000
+const CHAT_UI_TOOL = "openchamber_render"
+
+type QuizMode = "auto" | "chat" | "form"
 
 type QuizOption = {
   label: string
@@ -42,10 +54,11 @@ type QuizOption = {
 type PendingQuiz = {
   question: string
   details?: string
-  mode: "single-select" | "multi-select"
+  /** Form pendings carry the selection shape; chat pendings carry "chat". */
+  mode: "single-select" | "multi-select" | "chat"
   /** Display order (post-shuffle), 1-based. */
   options: QuizOption[]
-  status: "answered" | "cancelled" | "timeout"
+  status: "asked" | "answered" | "cancelled" | "timeout"
   selectedIndices: number[]
   dontKnow: boolean
   note?: string
@@ -94,7 +107,149 @@ function coerceCorrectAnswer(correctAnswer: unknown): string[] {
 
 function optionRef(options: QuizOption[], index: number): string {
   const opt = options[index - 1]
-  return `${index}. ${opt ? opt.label : "(unknown)"}`
+  return `${letterFor(index - 1)}. ${opt ? opt.label : "(unknown)"}`
+}
+
+function readMode(ctx: Plugin.Context): QuizMode {
+  const raw = String(ctx.options?.mode ?? "auto").trim().toLowerCase()
+  return raw === "chat" || raw === "form" ? raw : "auto"
+}
+
+/** A, B, …, Z, AA, AB, … */
+function letterFor(index: number): string {
+  let n = index
+  let out = ""
+  do {
+    out = String.fromCharCode(65 + (n % 26)) + out
+    n = Math.floor(n / 26) - 1
+  } while (n >= 0)
+  return out
+}
+
+function lettersToIndex(letters: string): number {
+  let n = 0
+  for (const ch of letters.toUpperCase()) {
+    if (ch < "A" || ch > "Z") return -1
+    n = n * 26 + (ch.charCodeAt(0) - 64)
+  }
+  return n - 1
+}
+
+function buildQuestionBlock(question: string, details: string | undefined): string {
+  return details ? `**Q.** ${question}\n\n${details}` : `**Q.** ${question}`
+}
+
+/** The lettered option texts, shared by the chat callout and the form-mode question message. */
+function buildOptionList(options: QuizOption[]): string {
+  return options.map((o, i) => `- **${letterFor(i)}.** ${o.label}`).join("\n")
+}
+
+function buildQuizProgram(question: string, details: string | undefined, options: QuizOption[], multiSelect: boolean): string {
+  // Option texts live in the callout (markdown renders LaTeX there); the buttons are letters.
+  const text = [
+    question,
+    ...(details ? [details] : []),
+    buildOptionList(options),
+  ].join("\n\n")
+  const choices = options.map((_, i) => letterFor(i))
+  choices.push("I don't know")
+  const choiceArgs = multiSelect ? `${JSON.stringify(choices)}, "", true` : JSON.stringify(choices)
+  return [
+    `note = Callout(${JSON.stringify(text)}, "info", "Quiz")`,
+    `choice = Choice("quiz-answer", ${choiceArgs})`,
+    "root = Stack([note, choice])",
+  ].join("\n")
+}
+
+function buildChatAskText(question: string, details: string | undefined, options: QuizOption[], multiSelect: boolean): string {
+  const questionBlock = buildQuestionBlock(question, details)
+  const fallback = options.map((o, i) => `${letterFor(i)}. ${o.label}`).join("\n")
+  const how = multiSelect
+    ? "Reply with the letters or values of every correct option (for example: A, C)."
+    : "Reply with the letter or value of your answer (for example: A)."
+  return [
+    questionBlock,
+    "",
+    "Render with the openchamber_render tool (pass awaitAnswer) if you have it; otherwise present the plain-text question below to the user.",
+    "",
+    "```openui-lang",
+    buildQuizProgram(question, details, options, multiSelect),
+    "```",
+    "",
+    "Plain-text fallback:",
+    fallback,
+    "I don't know",
+    "",
+    `${how} Then call quiz_grade with selected set to the user's answer.`,
+  ].join("\n")
+}
+
+/** Chat mode: resolve the relayed answer against the shuffled options (values, labels or letters). */
+function resolveSelected(pq: PendingQuiz, raw: unknown): { indices: number[]; dontKnow: boolean } | { error: string } {
+  const values = coerceCorrectAnswer(raw)
+  if (values.length === 0) {
+    return { error: "selected is required in chat mode — pass the option value(s) or label(s) the user chose." }
+  }
+
+  const indices: number[] = []
+  let dontKnow = false
+  for (const value of values) {
+    const text = value.trim()
+    if (!text) continue
+    const normalized = text.toLowerCase().replace(/[’']/g, "'")
+    if (text === DONT_KNOW || normalized === "i don't know" || normalized === "i dont know") {
+      dontKnow = true
+      continue
+    }
+
+    const exactValue = pq.options.findIndex((o) => o.value === text)
+    if (exactValue >= 0) {
+      indices.push(exactValue + 1)
+      continue
+    }
+    const exactLabel = pq.options.findIndex((o) => o.label === text)
+    if (exactLabel >= 0) {
+      indices.push(exactLabel + 1)
+      continue
+    }
+    const lower = text.toLowerCase()
+    const looseLabel = pq.options.findIndex((o) => o.label.toLowerCase() === lower)
+    if (looseLabel >= 0) {
+      indices.push(looseLabel + 1)
+      continue
+    }
+
+    const letterRun = /^([A-Za-z]+)(.*)$/s.exec(text)
+    if (letterRun) {
+      const byLetter = lettersToIndex(letterRun[1])
+      if (byLetter >= 0 && byLetter < pq.options.length) {
+        const rest = letterRun[2]
+        if (rest === "") {
+          indices.push(byLetter + 1)
+          continue
+        }
+        // Only a label we generated ("B. <label>") may follow the letter. Anything else
+        // (e.g. a space-separated letter list like "B C") is an honest unknown, never a prefix pick.
+        const separator = /^\s*([.):-])\s*/.exec(rest)
+        if (separator) {
+          const remainder = rest.slice(separator[0].length).trim()
+          if (remainder === "" || remainder.toLowerCase() === pq.options[byLetter].label.toLowerCase()) {
+            indices.push(byLetter + 1)
+            continue
+          }
+        }
+      }
+    }
+
+    const known = pq.options.map((o) => `"${o.value}"`).join(", ")
+    return { error: `selected "${value}" does not match any quiz option value or label (${known})` }
+  }
+
+  const unique = [...new Set(indices)].sort((a, b) => a - b)
+  if (!dontKnow && unique.length === 0) {
+    return { error: "selected is required in chat mode — pass the option value(s) or label(s) the user chose." }
+  }
+  return { indices: unique, dontKnow }
 }
 
 export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
@@ -108,13 +263,29 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
   const storePending = (sessionID: string, value: PendingQuiz) =>
     ctx.storage.set(pendingKey(sessionID), value as unknown as StorageJson)
 
+  const mode = readMode(ctx)
+  const chatUITools = new Map<string, boolean>()
+  try {
+    if (typeof ctx.session?.hook === "function") {
+      await ctx.session.hook("context", (event) => {
+        try {
+          if (!event?.sessionID || !event.tools || typeof event.tools !== "object") return
+          chatUITools.set(event.sessionID, Object.prototype.hasOwnProperty.call(event.tools, CHAT_UI_TOOL))
+        } catch {}
+      })
+    }
+  } catch {}
+  // Unknown (no context observed yet) degrades to chat, like any detection error.
+  const hasChatUI = async (sessionID: string): Promise<boolean> => chatUITools.get(sessionID) ?? true
+
   await ctx.tool.transform((tools) => {
     // ── quiz_ask ──────────────────────────────────────────────────────────
     tools.add({
       name: "quiz_ask",
       description:
         "Pose ONE graded quiz question to the user and wait for their answer. Options-only (single-select or " +
-        "multi-select); an 'I don't know' choice is added automatically, plus an optional free-text note. " +
+        "multi-select); an 'I don't know' choice is added automatically, plus an optional free-text note " +
+        "(chat: relay it back via quiz_grade's `note`; TUI form: the form's own note field). " +
         "Returns the user's raw selection UNGRADED — always follow with quiz_grade (correctAnswer + explanation) " +
         "to reveal the verdict. For non-graded questions use the built-in question tool instead.",
       input: {
@@ -164,22 +335,25 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
 
           if (input.shuffle !== false) options = shuffleOptions(options)
 
-          // Form payload: question only — nothing answer-revealing.
-          const displayOptions = options.map((o, i) => ({
-            label: `${i + 1}. ${o.label}`,
-            value: String(i + 1),
-            ...(o.description ? { description: o.description } : {}),
-          }))
+          if (mode === "chat" || (mode === "auto" && (await hasChatUI(sessionID)))) {
+            await storePending(sessionID, {
+              question, details, mode: "chat",
+              options, status: "asked", selectedIndices: [], dontKnow: false,
+            })
+            return { content: buildChatAskText(question, details, options, multiSelect) }
+          }
+
+          // Slim form: letters only — the question text is posted to the chat from the ask result.
+          const displayOptions = options.map((_, i) => ({ label: letterFor(i), value: letterFor(i) }))
           displayOptions.push({ label: "I don't know", value: DONT_KNOW })
 
-          const description = details ? `${question}\n\n${details}` : question
           const answerField: SessionFormCreateInput["fields"][number] = multiSelect
-            ? { key: "answer", type: "multiselect", title: "Question", description, options: displayOptions }
-            : { key: "answer", type: "string", title: "Question", description, options: displayOptions }
+            ? { key: "answer", type: "multiselect", title: "Answer", options: displayOptions }
+            : { key: "answer", type: "string", title: "Answer", options: displayOptions }
 
           const created = await (await forms()).session.form.create({
             sessionID,
-            title: "Quiz",
+            title: "Quiz — answer the question shown in chat",
             fields: [answerField, { key: "note", type: "string", title: "Note (optional)" }],
           })
           const formID = created.id
@@ -211,20 +385,14 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
             return { content: "User dismissed the quiz without answering. Call quiz_grade to close it out (or move on)." }
           }
 
-          // Answered: extract raw selection + note, stash, return ungraded.
-          const rawAnswer = state.answer.answer
-          const selectedValues: string[] = Array.isArray(rawAnswer)
-            ? rawAnswer.map((v: any) => String(v))
-            : rawAnswer !== undefined && rawAnswer !== null && rawAnswer !== ""
-              ? [String(rawAnswer)]
-              : []
-          const dontKnow = selectedValues.includes(DONT_KNOW)
-          const selectedIndices = [...new Set(
-            selectedValues
-              .filter((v) => v !== DONT_KNOW)
-              .map((v) => parseInt(v, 10))
-              .filter((n) => Number.isInteger(n) && n >= 1 && n <= options.length),
-          )].sort((a, b) => a - b)
+          // Answered: the form's letters resolve through the same helper chat mode uses.
+          const resolved = resolveSelected({
+            question, details, mode: multiSelect ? "multi-select" : "single-select", options,
+            status: "asked", selectedIndices: [], dontKnow: false,
+          }, state.answer.answer)
+          // The form only offers these letters; anything else counts as no valid selection.
+          const selectedIndices = "error" in resolved ? [] : resolved.indices
+          const dontKnow = "error" in resolved ? false : resolved.dontKnow
           const note = String(state.answer?.note ?? "").trim() || undefined
 
           await storePending(sessionID, {
@@ -232,11 +400,16 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
             status: "answered", selectedIndices, dontKnow, note,
           })
 
-          let text: string
+          let text = [
+            buildQuestionBlock(question, details),
+            buildOptionList(options),
+            "The form shows letters only — post the question block above to the chat now so the user can read it.",
+            "",
+          ].join("\n\n")
           if (dontKnow) {
-            text = 'User selected "I don\'t know" — they did not attempt an answer.'
+            text += 'User selected "I don\'t know" — they did not attempt an answer.'
           } else {
-            text = `User selected: ${selectedIndices.map((i) => optionRef(options, i)).join(", ") || "(nothing)"}`
+            text += `User selected: ${selectedIndices.map((i) => optionRef(options, i)).join(", ") || "(nothing)"}`
           }
           if (note) text += `\nUser's note: ${note}`
           text += "\nNow call quiz_grade with correctAnswer (the option value(s) you intended) and explanation to reveal the verdict."
@@ -253,8 +426,10 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
       description:
         "Grade the quiz the user just answered via quiz_ask. REQUIRED afterwards: pass correctAnswer (the option " +
         "value(s) you intended — single string or array for multi-select, exact-set match) and explanation (why the " +
-        "correct answer is correct — always required). Returns right/wrong, the correct answer, the user's note, and " +
-        "your explanation; relay all of it to the user. 'I don't know' grades as its own outcome, never as wrong.",
+        "correct answer is correct — always required). In chat mode also relay the user's answer as `selected` and " +
+        "any note as `note`; in form mode both come from the form. Returns right/wrong, the correct answer, the " +
+        "user's note, and your explanation; relay all of it to the user. 'I don't know' grades as its own outcome, " +
+        "never as wrong.",
       input: {
         type: "object",
         properties: {
@@ -262,6 +437,16 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
             description:
               'REQUIRED. The correct answer as option value(s) from quiz_ask\'s options. Single-select: one string ("mercury"). Multi-select: array (["belize","niue"]) — exact-set match. Always the value, never a position number.',
             oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+          },
+          selected: {
+            description:
+              "Chat-UI mode only: the user's relayed answer — the option value(s) or label(s) they chose. Single string, or an array for multi-select. Required in chat mode; ignored in form mode.",
+            oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
+          },
+          note: {
+            type: "string",
+            description:
+              "Chat-UI mode only: the user's free-text note, relayed verbatim from the ask callout. Ignored in form mode — the form has its own note field.",
           },
           explanation: { type: "string", description: "REQUIRED. Why the correct answer is correct — shown to the user after answering." },
         },
@@ -277,10 +462,24 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
 
           await ctx.storage.remove(pendingKey(sessionID))
 
-          if (pq.status !== "answered") {
-            return {
-              content: `Quiz was ${pq.status === "cancelled" ? "dismissed by the user" : "not answered in time"} — no grade. Correct answer for your reference: ask again later if needed.`,
+          let selectedIndices: number[]
+          let dontKnow: boolean
+          let note: string | undefined
+          if (pq.mode === "chat") {
+            const resolved = resolveSelected(pq, input.selected)
+            if ("error" in resolved) return { content: `quiz_grade failed: ${resolved.error}` }
+            selectedIndices = resolved.indices
+            dontKnow = resolved.dontKnow
+            note = String(input.note ?? "").trim() || pq.note
+          } else {
+            if (pq.status !== "answered") {
+              return {
+                content: `Quiz was ${pq.status === "cancelled" ? "dismissed by the user" : "not answered in time"} — no grade. Correct answer for your reference: ask again later if needed.`,
+              }
             }
+            selectedIndices = pq.selectedIndices
+            dontKnow = pq.dontKnow
+            note = pq.note
           }
 
           // Resolve correctAnswer against the DISPLAY order stashed by quiz_ask.
@@ -298,21 +497,20 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           }
           const uniqCorrect = Array.from(new Set(correctIndices)).sort((a, b) => a - b)
 
-          const correctSet = new Set(uniqCorrect)
-          const correct = !pq.dontKnow &&
-            pq.selectedIndices.length === uniqCorrect.length &&
-            pq.selectedIndices.every((v, i) => v === uniqCorrect[i])
+          const correct = !dontKnow &&
+            selectedIndices.length === uniqCorrect.length &&
+            selectedIndices.every((v, i) => v === uniqCorrect[i])
 
-          const selectedStr = pq.selectedIndices.map((i) => optionRef(pq.options, i)).join(", ") || "(none)"
+          const selectedStr = selectedIndices.map((i) => optionRef(pq.options, i)).join(", ") || "(none)"
           const correctStr = uniqCorrect.map((i) => optionRef(pq.options, i)).join(", ")
 
           let text: string
-          if (pq.dontKnow) {
+          if (dontKnow) {
             text = `User selected "I don't know" — they did not attempt an answer (a genuine knowledge gap, not a wrong guess).\nCorrect: ${correctStr}`
           } else {
             text = `User answered ${correct ? "correctly" : "incorrectly"}.\nSelected: ${selectedStr}\nCorrect: ${correctStr}`
           }
-          if (pq.note) text += `\nUser's note: ${pq.note}`
+          if (note) text += `\nNote: ${note}`
           if (explanation) text += `\nExplanation: ${explanation}`
           text += "\nRelay the verdict, the correct answer, and the explanation to the user now."
           return { content: text }

@@ -75,4 +75,4 @@ That's all. The `md-log` extension mirrors your reply text verbatim into the lin
 - PNG embed means **what the maker verified is pixel-identical to what the learner sees** — no re-render drift.
 - Unique filenames keep Obsidian's by-filename embed resolution unambiguous.
 
-> The makers render through the global `learn-viz-tools` plugin (Mermaid via `mmdc` from PATH; SVG via `rsvg-convert`, fallback ImageMagick). You don't render anything yourself — you only brief the maker and embed the filename it returns.
+> The makers' tools are registered by the `oc-learn` plugin (Mermaid via `mmdc` from PATH; SVG via `rsvg-convert`, fallback ImageMagick). You don't render anything yourself — you only brief the maker and embed the filename it returns.

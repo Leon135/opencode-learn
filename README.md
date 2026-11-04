@@ -23,7 +23,7 @@ Inside:
 - `skills/teach/SKILL.md` — the philosophy and the process
 - `skills/visualize/SKILL.md` — adds a correct, minimal diagram to a lesson when an idea is clearer as a picture
 - `plugins/agents.ts` — `researcher`, `svg-maker`, `mermaid-maker`: the subagents the plugin registers
-- `plugins/quiz.ts` — the graded `quiz_ask` / `quiz_grade` question pair (session forms via `@opencode/client`)
+- `plugins/quiz.ts` — the graded `quiz_ask` / `quiz_grade` question pair (chat-UI mode via `openchamber_render` with auto-detection; TUI session forms in form mode)
 - `plugins/viz/` (`index.ts`, `tui.ts`, `common.ts`) — the `write_*`/`edit_*`/`render_*` authoring loops the visual makers use (SVG via `rsvg-convert`, fallback ImageMagick; Mermaid via `mmdc`) and the `/viz-dir` TUI command
 - `plugins/md-link/` (`index.ts`, `tui.ts`, `core.ts`) — live-mirrors the session to a markdown file for comfortable reading in Obsidian (assistant replies, your prompts, and quiz Q&A as callouts) plus its TUI commands
 
@@ -52,13 +52,33 @@ Immediate package directories under those locations load automatically. A `plugi
 
 One entry loads both parts. The package's `package.json` `name` + `exports` decide which file is the server part and which is the TUI part, and the TUI part loads from the server plugin's entry — no `cli.json` entry and no per-plugin TUI flag. There is no install step: the plugin is TypeScript source loaded by OpenCode, and its only dependencies are `@opencode/plugin` and `@opencode/client`. Use versions of those packages compatible with the OpenCode release you target, and test the installed package rather than only a linked copy.
 
-Visuals publish into the session project's `viz/` by default. To always publish somewhere else (an Obsidian vault, say), run `/viz-dir` in the TUI — or point `~/.config/opencode/viz-state.json` at it directly; empty or missing means the project dir:
+Visuals publish into the session project's `viz/` by default — the project dir is captured once when the plugin sets up (`ctx.location.directory`), so publishes resolve against it even if the process cwd differs. To always publish somewhere else (an Obsidian vault, say), run `/viz-dir` in the TUI — or point `~/.config/opencode/viz-state.json` at it directly; the override still wins, and empty or missing means the project dir:
 
 ```json
 { "defaultDir": "/home/you/Notes/viz" }
 ```
 
 md-link keeps its own state next to it in `~/.config/opencode/md-link-state.json` (`defaultDir`, `keep`, `persist`, and the enabled sessions).
+
+## Quiz modes
+
+`quiz_ask` has two transports. **Chat-UI mode** returns the question plus a ready `openui-lang` program for `openchamber_render`; OpenChamber renders it, returns the chosen letter(s) and any note, and the model relays them to `quiz_grade(selected, note)`. The question, its details and the lettered option texts all render inside the callout (markdown, so LaTeX works there), while the Choice buttons stay plain letters (A, B, C…); a letter resolves to the shuffled option value through the same letter/value logic as before. Without that tool the result includes a plain-text lettered fallback.
+
+No synchronous HTML/KaTeX transport ships: a plugin-POSTed page is never displayed (the chat draws only `openchamber_render` tool-call pages) and an inlined-KaTeX page exceeds the page-size limit — see the ruling in [`docs/superpowers/specs/2026-11-05-quiz-chat-ui-design.md`](docs/superpowers/specs/2026-11-05-quiz-chat-ui-design.md).
+
+**Form mode** (TUI, and `auto` when chat detection fails) is a hybrid: the session form carries only lettered options (A, B, C…, plus "I don't know") and a note field, with the fixed title "Quiz — answer the question shown in chat". The full question, its details and the lettered option texts come back in the `quiz_ask` result, which tells the model to post that block as a chat message (markdown; math renders per the TUI's own pipeline). The form opens before that message can appear, so the user may see the lettered form first — an accepted ordering wrinkle of the ruling. Form grading uses the same letter/value resolution as chat.
+
+The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
+
+```jsonc
+{
+  "plugins": [
+    { "package": "/home/you/code/oc-learn", "options": { "mode": "auto" } }
+  ]
+}
+```
+
+`auto` detects `openchamber_render` in the session's tool catalog (memoized per session): present → chat, absent → form. If detection fails or has not run yet, it degrades to chat — a plain-text question still works there, while an invisible form does not.
 
 ## Requirements
 
@@ -67,7 +87,7 @@ md-link keeps its own state next to it in `~/.config/opencode/md-link-state.json
 - `mmdc` (`@mermaid-js/mermaid-cli`) on PATH — Mermaid rendering
 - [Bun](https://bun.sh) only for development: `bun install`, then `bun x tsc --noEmit` to typecheck
 - Subagents inherit the session's model — edit `plugins/agents.ts` to tune them
-- For the quiz popups: nothing extra — OpenCode v2's TUI renders the question forms natively
+- For quizzes: nothing extra — chat-UI mode auto-detects `openchamber_render` (OpenChamber) and otherwise uses OpenCode v2's native TUI forms. See [Quiz modes](#quiz-modes) to force one.
 
 ## Notes
 
@@ -97,4 +117,4 @@ Behavior changes:
 ## Credits
 
 - **amosblomqvist** — original system, teaching philosophy, and video: [amosblomqvist/learn](https://github.com/amosblomqvist/learn) (pi configuration)
-- This repository — OpenCode v2 port of that pi configuration; the port mechanics (the plugin package, forms-based quiz, TUI commands) are the only new work here
+- This repository — OpenCode v2 port of that pi configuration; the port mechanics (the plugin package, chat-UI/forms quiz, TUI commands) are the only new work here

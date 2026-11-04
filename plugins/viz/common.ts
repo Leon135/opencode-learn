@@ -1,6 +1,6 @@
 /**
  * Shared helpers for the learn visual authoring loops (write_/edit_/render_
- * trios for SVG and Mermaid, registered by plugins/learn-viz-tools.ts):
+ * trios for SVG and Mermaid, registered by plugins/viz/index.ts):
  * subprocess runner, per-session managed source file, exact-match editor,
  * and publishing a chosen render into <worktree>/viz with a unique filename.
  *
