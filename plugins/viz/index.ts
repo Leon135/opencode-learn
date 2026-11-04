@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 import { isAbsolute } from "node:path"
+import type { Plugin } from "@opencode/plugin"
 import {
   applyEdit,
   currentBody,
@@ -23,7 +24,7 @@ import {
  *   mermaid  → write_mermaid / edit_mermaid / render_mermaid  (mmdc from PATH)
  *
  * Each trio shares ONE per-session managed source file (keyed by OpenCode
- * sessionID when the harness provides it, else a shared slot), so a maker
+ * sessionID when the harness provides it, else a shared key), so a maker
  * writes, exact-match-edits, and renders without naming files.
  *
  * v2 beta constraint (see ocv2-findings): custom tool results cannot deliver
@@ -43,51 +44,23 @@ function sid(tctx: any): string {
   return typeof s === "string" && s.length > 0 ? s : "shared"
 }
 
-export async function setupViz(ctx: any): Promise<void> {
-  // Publish base: resolved per call. A globally loaded plugin's setup ctx
-  // points at the server's default location ($HOME), and the execute ctx
-  // carries only the sessionID — so resolve the session's project dir from
-  // the session API when the ctx lacks directory/worktree. A configured
-  // defaultDir (viz-state.json, md-link-style) overrides all of that;
-  // empty means publish into the session's project.
+export async function setupViz(ctx: Plugin.Context): Promise<void> {
+  // Publish base: the project directory is captured once at setup. A configured
+  // defaultDir (viz-state.json, md-link-style) overrides it and is re-read on
+  // every publish so /viz-dir changes apply immediately; empty means publish
+  // into the project's viz/.
+  const projectDir = ctx.location?.directory ?? process.cwd()
   const VIZ_STATE_FILE = join(homedir(), ".config", "opencode", "viz-state.json")
-  const fallbackBase = ctx.worktree || ctx.directory || process.cwd()
 
-  function apiGet(path: string): Promise<any> {
-    const proc = Bun.spawn(["opencode2", "api", "get", path], { stdout: "pipe", stderr: "pipe" })
-    return new Response(proc.stdout).text().then(async (out) => {
-      await proc.exited
-      try {
-        return JSON.parse(out)
-      } catch {
-        return undefined
-      }
-    })
-  }
-
-  async function publishBase(tctx: any): Promise<string> {
-    const sessionBase = (async () => {
-      const direct = tctx?.worktree || tctx?.directory
-      if (direct) return direct
-      const sid = typeof tctx?.sessionID === "string" ? tctx.sessionID : ""
-      if (sid) {
-        try {
-          const s = await apiGet(`/api/session/${sid}`)
-          const dir = s?.data?.location?.directory || s?.data?.directory
-          if (dir) return dir
-        } catch {}
-      }
-      return fallbackBase
-    })()
+  function resolvePublishDir(): string {
     try {
       const st = JSON.parse(readFileSync(VIZ_STATE_FILE, "utf8"))
       const configured = typeof st?.defaultDir === "string" ? st.defaultDir.trim() : ""
       if (configured) {
-        const base = await sessionBase
-        return isAbsolute(configured) ? configured : join(base, configured)
+        return isAbsolute(configured) ? configured : join(projectDir, configured)
       }
     } catch {}
-    return join(await sessionBase, FILES_DIRNAME)
+    return join(projectDir, FILES_DIRNAME)
   }
 
   // ── managed-file helpers shared by both trios ────────────────────────────
@@ -228,7 +201,7 @@ export async function setupViz(ctx: any): Promise<void> {
 
           const look = `NOW open ${outPath} with the read tool and LOOK at it. `
           if (input.save_as) {
-            const pub = publish(outPath, String(input.save_as), await publishBase(tctx))
+            const pub = publish(outPath, String(input.save_as), resolvePublishDir())
             return {
               content:
                 `Published to viz/.\nfilename: ${pub.filename}\npath: ${pub.path}\n\n${look}Confirm it is correct and true to the brief before returning it.`,

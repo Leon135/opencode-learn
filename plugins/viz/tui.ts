@@ -16,8 +16,10 @@
 import { readFileSync, writeFileSync } from "fs"
 import { homedir } from "node:os"
 import { isAbsolute, join } from "node:path"
+import type { Plugin } from "@opencode/plugin/tui"
 
 type DirResult = { ok: true; value: string } | { ok: false; error: string }
+type ToastVariant = "info" | "success" | "warning" | "error"
 
 const STATE_FILE = join(homedir(), ".config", "opencode", "viz-state.json")
 
@@ -45,8 +47,8 @@ function validateDir(raw: string): DirResult {
   return { ok: true, value: v }
 }
 
-export async function setupVizTui(ctx: any): Promise<void> {
-  const toast = (message: string, variant: string = "info") => {
+export async function setupVizTui(ctx: Plugin.Context): Promise<void> {
+  const toast = (message: string, variant: ToastVariant = "info") => {
     try {
       ctx.ui?.toast?.show?.({ title: "viz", message, variant })
     } catch {}
@@ -79,29 +81,23 @@ export async function setupVizTui(ctx: any): Promise<void> {
     }
   }
 
-  // ——— registration (MUST happen inside a rendered component) ———
+  // ——— registration (callable directly from setup; removed on deactivate) ———
 
-  ctx.ui?.slot?.({
-    append: "app",
-    render: () => {
-      ctx.keymap.layer(() => ({
-        mode: "global",
-        priority: 1,
-        enabled: true,
-        commands: [
-          {
-            id: "viz.setdir",
-            title: "Output directory…",
-            group: "viz",
-            palette: true,
-            slash: { name: "viz-dir" },
-            run: () => openSetDirDialog(),
-          },
-        ],
-      }))
-      return null // layer carrier renders nothing
-    },
-  })
+  ctx.keymap.layer(() => ({
+    mode: "global",
+    priority: 1,
+    enabled: true,
+    commands: [
+      {
+        id: "viz.setdir",
+        title: "Output directory…",
+        group: "viz",
+        palette: true,
+        slash: { name: "viz-dir" },
+        run: () => openSetDirDialog(),
+      },
+    ],
+  }))
 
   return undefined
 }
