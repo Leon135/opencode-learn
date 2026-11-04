@@ -5,6 +5,7 @@
     "": {
       "name": "oc-learn",
       "dependencies": {
+        "@opencode/client": "latest",
         "@opencode/plugin": "latest",
       },
       "devDependencies": {

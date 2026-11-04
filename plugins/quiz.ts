@@ -15,28 +15,31 @@
  *                stashed selection (exact-set match; "I don't know" is its own
  *                outcome) and returns the verdict + explanation.
  *
- * Transport: the server-plugin ctx exposes no form API, so form calls go
- * through the `opencode2 api` CLI (port discovery + auth handled). Wire
- * protocol in ocv2-findings:
- *   POST /api/session/:sid/form            {title, fields:[{key,type,title,description,options}]}
- *   GET  /api/session/:sid/form/:fid/state {status: pending|answered|cancelled, answer}
- *   POST /api/session/:sid/form/:fid/reply {answer: {key: value}}
+ * Transport: the server plugin context exposes no form API, so forms go
+ * through the official OpenCode client (`OpenCode.make` + `Service.discover`):
+ *   POST   /api/session/:sid/form           {title, fields:[{key,type,title,description,options}]}
+ *   GET    /api/session/:sid/form/:fid      -> {state: {status: pending|answered|cancelled, answer?}}
+ *   POST   /api/session/:sid/form/:fid/reply {answer: {key: value}}
+ *   DELETE /api/session/:sid/form/:fid      (cancel)
  */
 
+import { OpenCode } from "@opencode/client"
+import { Service } from "@opencode/client/service"
+import type { FormState, OpenCodeClient, SessionFormCreateInput } from "@opencode/client"
 import type { Plugin } from "@opencode/plugin"
 
 const DONT_KNOW = "__dont_know__"
 const POLL_MS = 400
 const TIMEOUT_MS = 10 * 60_000
 
-interface QuizOption {
+type QuizOption = {
   label: string
   value: string
   description?: string
 }
 
 /** Per-session pending quiz state between quiz_ask and quiz_grade. */
-interface PendingQuiz {
+type PendingQuiz = {
   question: string
   details?: string
   mode: "single-select" | "multi-select"
@@ -48,21 +51,9 @@ interface PendingQuiz {
   note?: string
 }
 
-const pending = new Map<string, PendingQuiz>()
+const pendingKey = (sessionID: string) => `quiz:pending:${sessionID}`
 
-function api(method: string, path: string, body?: unknown): Promise<any> {
-  const args = ["opencode2", "api", method, path]
-  if (body !== undefined) args.push("-d", JSON.stringify(body))
-  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
-  return new Response(proc.stdout).text().then(async (out) => {
-    await proc.exited
-    try {
-      return JSON.parse(out)
-    } catch {
-      return undefined
-    }
-  })
-}
+type StorageJson = Parameters<Plugin.Context["storage"]["set"]>[1]
 
 function normalizeOptions(raw: any): QuizOption[] {
   const seen = new Set<string>()
@@ -116,6 +107,16 @@ function firstLine(text: string): string {
 }
 
 export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
+  let client: OpenCodeClient | undefined
+  const forms = async () =>
+    client ?? (client = await (async () => {
+      const endpoint = await Service.discover()
+      if (!endpoint) throw new Error("could not discover the running OpenCode server")
+      return OpenCode.make({ baseUrl: endpoint.url, headers: Service.headers(endpoint) })
+    })())
+  const storePending = (sessionID: string, value: PendingQuiz) =>
+    ctx.storage.set(pendingKey(sessionID), value as unknown as StorageJson)
+
   await ctx.tool.transform((tools) => {
     // ── quiz_ask ──────────────────────────────────────────────────────────
     tools.add({
@@ -180,42 +181,39 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           }))
           displayOptions.push({ label: "I don't know", value: DONT_KNOW })
 
-          const created = await api("post", `/api/session/${sessionID}/form`, {
+          const description = details ? `${question}\n\n${details}` : question
+          const answerField: SessionFormCreateInput["fields"][number] = multiSelect
+            ? { key: "answer", type: "multiselect", title: "Question", description, options: displayOptions }
+            : { key: "answer", type: "string", title: "Question", description, options: displayOptions }
+
+          const created = await (await forms()).session.form.create({
+            sessionID,
             title: "Quiz",
-            fields: [
-              {
-                key: "answer",
-                type: multiSelect ? "multiselect" : "string",
-                title: "Question",
-                description: details ? `${question}\n\n${details}` : question,
-                options: displayOptions,
-              },
-              { key: "note", type: "string", title: "Note (optional)" },
-            ],
+            fields: [answerField, { key: "note", type: "string", title: "Note (optional)" }],
           })
-          const formID = created?.data?.id
+          const formID = created.id
           if (!formID) return { content: `quiz_ask failed: could not create the question form (${JSON.stringify(created).slice(0, 200)})` }
 
           const deadline = Date.now() + TIMEOUT_MS
-          let state: any
+          let state: FormState | undefined
           while (Date.now() < deadline) {
             await new Promise((r) => setTimeout(r, POLL_MS))
             try {
-              state = (await api("get", `/api/session/${sessionID}/form/${formID}/state`))?.data
+              state = (await (await forms()).session.form.get({ sessionID, formID })).state
             } catch {}
             if (state && state.status !== "pending") break
           }
 
           if (!state || state.status === "pending") {
-            await api("post", `/api/session/${sessionID}/form/${formID}/cancel`).catch(() => {})
-            pending.set(sessionID, {
+            await (await forms()).session.form.cancel({ sessionID, formID }).catch(() => {})
+            await storePending(sessionID, {
               question, details, mode: multiSelect ? "multi-select" : "single-select", options,
               status: "timeout", selectedIndices: [], dontKnow: false,
             })
             return { content: "User did not answer the quiz in time. Call quiz_grade to close it out (or move on)." }
           }
           if (state.status === "cancelled") {
-            pending.set(sessionID, {
+            await storePending(sessionID, {
               question, details, mode: multiSelect ? "multi-select" : "single-select", options,
               status: "cancelled", selectedIndices: [], dontKnow: false,
             })
@@ -223,7 +221,7 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           }
 
           // Answered: extract raw selection + note, stash, return ungraded.
-          const rawAnswer = state.answer?.answer
+          const rawAnswer = state.answer.answer
           const selectedValues: string[] = Array.isArray(rawAnswer)
             ? rawAnswer.map((v: any) => String(v))
             : rawAnswer !== undefined && rawAnswer !== null && rawAnswer !== ""
@@ -238,7 +236,7 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           )].sort((a, b) => a - b)
           const note = String(state.answer?.note ?? "").trim() || undefined
 
-          pending.set(sessionID, {
+          await storePending(sessionID, {
             question, details, mode: multiSelect ? "multi-select" : "single-select", options,
             status: "answered", selectedIndices, dontKnow, note,
           })
@@ -283,14 +281,14 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
         try {
           const sessionID = typeof tctx?.sessionID === "string" ? tctx.sessionID : ""
           const explanation = String(input.explanation ?? "").trim()
-          const pq = sessionID ? pending.get(sessionID) : undefined
+          const pq = sessionID ? ((await ctx.storage.get(pendingKey(sessionID))) as PendingQuiz | undefined) : undefined
           if (!pq) return { content: "quiz_grade failed: no pending quiz — call quiz_ask first." }
 
-          pending.delete(sessionID)
+          await ctx.storage.remove(pendingKey(sessionID))
 
           if (pq.status !== "answered") {
             return {
-              content: `Quiz was ${pq.status === "cancelled" ? "dismissed by the user" : "not answered in time"} — no grade. Correct answer for your reference: ${pq.options.map((_, i) => i + 1).join(", ") ? "" : ""}ask again later if needed.`,
+              content: `Quiz was ${pq.status === "cancelled" ? "dismissed by the user" : "not answered in time"} — no grade. Correct answer for your reference: ask again later if needed.`,
             }
           }
 
