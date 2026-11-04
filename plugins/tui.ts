@@ -5,7 +5,13 @@ import { setupVizTui } from "./viz/tui.ts"
 export default Plugin.define({
   id: "oc-learn.tui",
   async setup(ctx) {
-    await setupVizTui(ctx)
-    await setupMdLinkTui(ctx)
+    const cleanups: (Plugin.Cleanup | void)[] = []
+    cleanups.push(await setupVizTui(ctx))
+    cleanups.push(await setupMdLinkTui(ctx))
+    return () => {
+      for (const cleanup of cleanups.reverse()) {
+        if (typeof cleanup === "function") cleanup()
+      }
+    }
   },
 })

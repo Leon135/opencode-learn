@@ -1,10 +1,10 @@
 /**
  * md-link TUI plugin — silent toggle for the Obsidian live mirror.
  *
- * Loader contract (opencode2 beta): default export MUST be { id, setup }.
- * ctx.keymap.layer() is Solid-scoped and only works inside a rendered
- * component — the ui.slot({ append: "app" }) carrier below is required.
- * Runtime dialog API: await ctx.ui.dialog.prompt({...}) → string | undefined.
+ * V2 loader contract: default export is { id, setup } via Plugin.define.
+ * setup may call ctx.keymap.layer() directly (the layer is removed when the
+ * plugin deactivates) and returns a cleanup that runs on deactivate/exit.
+ * Dialog API: await ctx.ui.dialog.prompt({...}) → string | undefined.
  *
  * Commands (all purely client-side — nothing is ever sent to the LLM):
  *   ctrl+alt:m / /md-link [dir]   toggle mirroring for the focused session;
@@ -24,9 +24,12 @@
 import { accessSync, constants as fsConstants, existsSync, readFileSync, rmSync, statSync } from "fs"
 import { isAbsolute, join, normalize } from "path"
 import { homedir } from "os"
+import type { OpenCodeClient } from "@opencode/client"
+import type { Plugin } from "@opencode/plugin/tui"
 import {
   appendMessage,
   disableSession,
+  hasBlock,
   isEnabled,
   loadState,
   messageText,
@@ -37,6 +40,7 @@ import {
 } from "./core.ts"
 
 type DirResult = { ok: true; abs: string } | { ok: false; error: string }
+type ToastVariant = "info" | "success" | "warning" | "error"
 
 /** Validate a user-supplied output dir. Must already exist and be writable. */
 function validateDir(raw: string, pwd: string): DirResult {
@@ -74,52 +78,44 @@ function extractArg(input: unknown): string {
 }
 
 /**
- * Backfill the newest COMPLETED assistant reply via the service HTTP API
- * (ctx.state.session.messages() returns no rows in this beta).
- *
- * `opencode2 api` handles port discovery + auth; response items are
- * NEWEST-FIRST and may cap at ~50, with two text shapes (content[] parts or
- * flat text — see core.messageText).
+ * Backfill the newest COMPLETED assistant reply via the plugin client
+ * (ctx.client.message.list = GET /api/session/:id/message, newest first).
  *
  * Replies still streaming when the toggle fires are skipped: their
  * time.created is too recent, and live ordinals will finish them anyway.
  */
 async function backfillLatestTurn(
+  client: OpenCodeClient,
   sessionID: string,
   file: string,
   keep: number | null,
   enabledAt: number,
 ): Promise<boolean> {
   try {
-    const proc = Bun.spawn(["opencode2", "api", "get", `/api/session/${sessionID}/message`], {
-      stdout: "pipe",
-      stderr: "pipe",
+    const { data: items } = await client.message.list({
+      sessionID,
+      type: "assistant",
+      order: "desc",
+      limit: 50,
     })
-    const out = await new Response(proc.stdout).text()
-    await proc.exited
-
-    const parsed = JSON.parse(out)
-    const items: any[] = Array.isArray(parsed) ? parsed : (parsed?.data ?? [])
     for (const m of items) {
-      if (m?.type !== "assistant") continue
-      const created = Number(m?.time?.created ?? 0)
+      const created = Number(m.time?.created ?? 0)
       if (created && enabledAt - created < 15_000) continue // likely still streaming
       const text = messageText(m)
       if (!text) continue
-      if (readFileSync(file, "utf-8").includes(`<!-- msg:${m.id}`)) break // already mirrored
+      if (hasBlock(file, m.id)) break // already mirrored
       return appendMessage(file, { text, markerKey: `${m.id}#backfill` }, keep) === "written"
     }
   } catch {}
   return false
 }
 
-export async function setupMdLinkTui(ctx: any): Promise<void> {
-  const pwd = (): string =>
-    ctx?.state?.path?.directory ?? ctx?.state?.path?.worktree ?? process.cwd()
+export async function setupMdLinkTui(ctx: Plugin.Context): Promise<Plugin.Cleanup> {
+  const pwd = (): string => ctx.data.location.default().directory || process.cwd()
 
-  const toast = (message: string, variant: string = "info") => {
+  const toast = (message: string, variant: ToastVariant = "info") => {
     try {
-      ctx.ui?.toast?.show?.({ title: "md-link", message, variant })
+      ctx.ui.toast.show({ title: "md-link", message, variant })
     } catch {}
   }
 
@@ -136,8 +132,8 @@ export async function setupMdLinkTui(ctx: any): Promise<void> {
     lastRun = now
 
     try {
-      const cur = ctx?.ui?.router?.current?.()
-      const sessionID = cur?.sessionID ?? cur?.params?.sessionID
+      const cur = ctx.ui.router.current()
+      const sessionID = cur.type === "session" ? cur.sessionID : undefined
       if (!sessionID || typeof sessionID !== "string") {
         toast("No active session found", "warning")
         return
@@ -166,7 +162,7 @@ export async function setupMdLinkTui(ctx: any): Promise<void> {
       st.sessions[sessionID] = res.abs
       saveState(st)
       touchMirror(file)
-      const backfilled = await backfillLatestTurn(sessionID, file, st.keep, Date.now())
+      const backfilled = await backfillLatestTurn(ctx.client, sessionID, file, st.keep, Date.now())
       const tag = st.persist ? " (persistent)" : ""
       toast(
         backfilled
@@ -293,58 +289,51 @@ export async function setupMdLinkTui(ctx: any): Promise<void> {
       saveState(st)
     } catch {}
   }
-  try { ctx.lifecycle?.onDispose?.(cleanupOnExit) } catch {}
-  try { ctx.lifecycle?.signal?.addEventListener("abort", cleanupOnExit, { once: true }) } catch {}
+  // belt-and-braces: host cleanup covers normal exit; this covers hard exits
   try { process.once("exit", cleanupOnExit) } catch {}
 
-  // ——— registration (MUST happen inside a rendered component) ———
+  // ——— registration (callable directly from setup; removed on deactivate) ———
 
-  ctx.ui?.slot?.({
-    append: "app",
-    render: () => {
-      ctx.keymap.layer(() => ({
-        mode: "global",
-        priority: 1,
-        enabled: true,
-        commands: [
-          {
-            id: "md-link.toggle",
-            title: "Live mirror",
-            group: "md-link",
-            bind: "ctrl+alt+m",
-            palette: true,
-            slash: { name: "md-link" },
-            run,
-          },
-          {
-            id: "md-link.setdir",
-            title: "Output directory…",
-            group: "md-link",
-            palette: true,
-            slash: { name: "md-link-dir" },
-            run: () => openSetDirDialog(),
-          },
-          {
-            id: "md-link.keep",
-            title: "Keep last N",
-            group: "md-link",
-            palette: true,
-            slash: { name: "md-link-keep" },
-            run: () => openKeepDialog(),
-          },
-          {
-            id: "md-link.persist",
-            title: "Persistence",
-            group: "md-link",
-            palette: true,
-            slash: { name: "md-link-persist" },
-            run: (input?: unknown) => togglePersistence(input),
-          },
-        ],
-      }))
-      return null // layer carrier renders nothing
-    },
-  })
+  ctx.keymap.layer(() => ({
+    mode: "global",
+    priority: 1,
+    enabled: true,
+    commands: [
+      {
+        id: "md-link.toggle",
+        title: "Live mirror",
+        group: "md-link",
+        bind: "ctrl+alt+m",
+        palette: true,
+        slash: { name: "md-link" },
+        run,
+      },
+      {
+        id: "md-link.setdir",
+        title: "Output directory…",
+        group: "md-link",
+        palette: true,
+        slash: { name: "md-link-dir" },
+        run: () => openSetDirDialog(),
+      },
+      {
+        id: "md-link.keep",
+        title: "Keep last N",
+        group: "md-link",
+        palette: true,
+        slash: { name: "md-link-keep" },
+        run: () => openKeepDialog(),
+      },
+      {
+        id: "md-link.persist",
+        title: "Persistence",
+        group: "md-link",
+        palette: true,
+        slash: { name: "md-link-persist" },
+        run: (input?: unknown) => togglePersistence(input),
+      },
+    ],
+  }))
 
-  return undefined
+  return cleanupOnExit
 }

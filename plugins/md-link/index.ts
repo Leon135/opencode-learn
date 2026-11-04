@@ -6,47 +6,34 @@
  * exclusively by the TUI plugin — this plugin never enables anything.
  *
  * Mirrors are transient by default — with persistence ON (/md-link-persist),
- * session entries survive TUI exit and this poller resumes them on next launch.
+ * session entries survive TUI exit and this subscription resumes them on next launch.
  *
  * What gets mirrored (teaching-session parity with the pi md-log):
- *   - assistant replies   → poller (2.5 s) over `opencode2 api get …/message`
- *   - user prompts        → poller, as `> [!quote] YOU` callouts
+ *   - assistant replies   → ctx.event.subscribe session.text.delta (2.5 s
+ *                           throttle while streaming) + session.text.ended
+ *   - user prompts        → session.inbox.enqueued, as `> [!quote] YOU` callouts
  *   - quiz_ask / question → tool hooks: question callout written at
  *                           execute.before (pre-answer, sanitized input),
  *                           feedback callout at execute.after (quiz_grade /
  *                           question results)
- * We deliberately do NOT use plugin event delivery — as of the 2026-08-25
- * beta, external server plugins receive no session events through any
- * mechanism (hooks.event, ctx.event.subscribe); see ocv2-findings/findings.md.
- * Tool hooks DO fire externally and carry {tool, sessionID, id, input,
- * status, result}. The poller only runs while at least one session is enabled.
+ * The subscription is aborted by the cleanup returned from setup; an
+ * unexpected stream exit is logged and re-armed (the old poller self-recovered).
  */
 
+import type { Plugin } from "@opencode/plugin"
 import {
   appendMessage,
   hasBlock,
   isEnabled,
   loadState,
   mirrorFile,
-  messageText,
   touchMirror,
 } from "./core.ts"
 
-const POLL_MS = 2_500
-/** Cap on how many historical messages a single sync may backfill. */
-const MAX_CATCHUP = 10
-
-async function fetchMessages(sessionID: string): Promise<any[]> {
-  const proc = Bun.spawn(["opencode2", "api", "get", `/api/session/${sessionID}/message`], {
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const out = await new Response(proc.stdout).text()
-  await proc.exited
-  const parsed = JSON.parse(out)
-  const items = Array.isArray(parsed) ? parsed : parsed?.data
-  return Array.isArray(items) ? items : [] // newest-first
-}
+/** Streaming cadence: rewrite an in-flight reply block at most this often. */
+const DELTA_WRITE_MS = 2_500
+/** Wait before re-subscribing after the event stream exits unexpectedly. */
+const RESUBSCRIBE_MS = 5_000
 
 /** Skill declarations are system-injected context, not learner prose. */
 function stripSkillBlocks(text: string): string {
@@ -62,35 +49,36 @@ function callout(type: string, title: string, bodyLines: string[]): string {
   return lines.join("\n")
 }
 
-async function syncSession(sessionID: string): Promise<void> {
-  const st = loadState()
-  if (!isEnabled(st, sessionID)) return
-  // Fallback chain: recorded dir → config defaultDir → cwd (no hardcoded paths).
-  const file = mirrorFile(st, sessionID, process.cwd())
-  if (!file) return
-
-  touchMirror(file)
-
-  // Walk newest → oldest, collecting until we hit an already-mirrored
-  // message; then append oldest-first so chronology is preserved.
-  const pending: { id: string; text: string }[] = []
-  for (const m of await fetchMessages(sessionID)) {
-    if (m?.type !== "assistant" && m?.type !== "user") continue
-    let text = messageText(m)
-    if (!text) continue
-    if (m.type === "user") {
-      text = stripSkillBlocks(text.trim())
-      if (text) text = callout("quote", "YOU", text.split("\n"))
-    }
-    if (!text) continue
-    if (hasBlock(file, `${m.id}`)) break
-    pending.push({ id: `${m.id}`, text })
-    if (pending.length >= MAX_CATCHUP) break
-  }
-  for (let i = pending.length - 1; i >= 0; i--) {
-    appendMessage(file, { text: pending[i].text, markerKey: pending[i].id, replace: true }, st.keep)
-  }
+/** Append one block, keeping the existing text when the key is already mirrored. */
+function mirrorBlock(file: string, key: string, text: string, keep: number | null): void {
+  if (!text || hasBlock(file, key)) return
+  appendMessage(file, { text, markerKey: key, replace: true }, keep)
 }
+
+/** Write an assistant block, rewriting the existing one in place while streaming. */
+function writeAssistant(file: string, key: string, text: string, keep: number | null): void {
+  if (!text) return
+  appendMessage(file, { text, markerKey: key, replace: true }, keep)
+}
+
+/** The subset of the session event stream this plugin mirrors. */
+type MirrorEvent =
+  | {
+      type: "session.text.delta"
+      data: { sessionID: string; assistantMessageID: string; ordinal: number; delta: string }
+    }
+  | {
+      type: "session.text.ended"
+      data: { sessionID: string; assistantMessageID: string; ordinal: number; text: string }
+    }
+  | {
+      type: "session.inbox.enqueued"
+      data: {
+        sessionID: string
+        inboxID: string
+        item: { type: "user"; payload: { text: string } } | { type: "synthetic" | "compaction" | "move" }
+      }
+    }
 
 // ── Q&A callouts via tool hooks ─────────────────────────────────────────────
 
@@ -153,27 +141,78 @@ function gradeCallout(content: string): string {
   return callout("example", "Quiz", lines)
 }
 
-export async function setupMdLink(ctx: any): Promise<() => void> {
-  let busy = false
-  let timer: ReturnType<typeof setInterval> | undefined
+export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
+  const controller = new AbortController()
+  /** In-flight assistant text per `<messageID>#<ordinal>` and its last write time. */
+  const inflight = new Map<string, { text: string; written: number }>()
 
-  const tick = async () => {
-    if (busy) return
-    busy = true
+  const handleEvent = (event: MirrorEvent): void => {
     try {
       const st = loadState()
-      for (const sid of Object.keys(st.sessions)) {
-        try {
-          await syncSession(sid)
-        } catch {} // one failing session must not starve the others
+      const sessionID = event.data.sessionID
+      if (!isEnabled(st, sessionID)) return
+      // Fallback chain: recorded dir → config defaultDir → cwd (no hardcoded paths).
+      const file = mirrorFile(st, sessionID, process.cwd())
+      if (!file) return
+      touchMirror(file)
+
+      if (event.type === "session.inbox.enqueued") {
+        const item = event.data.item
+        if (item.type !== "user") return
+        const text = stripSkillBlocks(String(item.payload.text ?? "").trim())
+        if (text) mirrorBlock(file, `${event.data.inboxID}`, callout("quote", "YOU", text.split("\n")), st.keep)
+        return
       }
-    } finally {
-      busy = false
+
+      const key = `${event.data.assistantMessageID}#${event.data.ordinal}`
+      if (event.type === "session.text.delta") {
+        const entry = inflight.get(key) ?? { text: "", written: 0 }
+        entry.text += event.data.delta
+        const now = Date.now()
+        if (now - entry.written >= DELTA_WRITE_MS) {
+          entry.written = now
+          writeAssistant(file, key, entry.text.trim(), st.keep)
+        }
+        inflight.set(key, entry)
+        return
+      }
+
+      // session.text.ended: final text for the part, written immediately.
+      inflight.delete(key)
+      writeAssistant(file, key, event.data.text.trim(), st.keep)
+    } catch {} // one bad event must not stop the subscription
+  }
+
+  // Re-arm after an unexpected stream exit; the old poller recovered by itself.
+  const subscribe = async (): Promise<void> => {
+    while (!controller.signal.aborted) {
+      try {
+        for await (const event of ctx.event.subscribe({
+          types: ["session.text.delta", "session.text.ended", "session.inbox.enqueued"],
+          signal: controller.signal,
+        })) {
+          handleEvent(event)
+        }
+        if (!controller.signal.aborted) console.error("[md-link] event stream ended — resubscribing")
+      } catch (error) {
+        if (controller.signal.aborted) return
+        console.error("[md-link] event subscription failed — resubscribing:", error)
+      }
+      inflight.clear()
+      if (controller.signal.aborted) return
+      await new Promise<void>((resolve) => {
+        const done = () => {
+          clearTimeout(timer)
+          controller.signal.removeEventListener("abort", done)
+          resolve()
+        }
+        const timer = setTimeout(done, RESUBSCRIBE_MS)
+        controller.signal.addEventListener("abort", done, { once: true })
+      })
     }
   }
 
-  setTimeout(tick, 500)
-  timer = setInterval(tick, POLL_MS)
+  void subscribe()
 
   // ── Q&A capture ─────────────────────────────────────────────────────────
   // execute.before: write the question callout BEFORE the learner answers
@@ -216,7 +255,5 @@ export async function setupMdLink(ctx: any): Promise<() => void> {
     console.error("[md-link] ctx.tool.hook unavailable — Q&A capture disabled")
   }
 
-  return () => {
-    if (timer) clearInterval(timer)
-  }
+  return () => controller.abort()
 }
