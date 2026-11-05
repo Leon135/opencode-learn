@@ -1,7 +1,5 @@
 # opencode-learn
 
-[![video](assets/thumbnail.png)](https://www.youtube.com/watch?v=kzcI5F4tGiU)
-
 An AI teaching system packaged as an [OpenCode v2](https://opencode.ai/v2/docs/) plugin. The `teach` skill probes what you already know, plans a dependency map, then teaches node by node — checking each node lands with a graded quiz before building on top of it.
 
 ## Where it comes from
@@ -15,46 +13,15 @@ Three generations of the same system:
 > [!WARNING]
 > Experimental — some things may not work or may break.
 
-## What's in it
-
-One plugin package, `opencode-learn` (the repo root). Its `package.json` maps two exports to the plugin parts:
-
-- `.` → `plugins/index.ts` — the **server** part, plugin id `opencode-learn`. It registers the bundled agents and skills at setup, adds the quiz and viz tools, and runs the md-link mirror.
-- `./tui` → `plugins/tui.ts` — the **TUI** part, plugin id `opencode-learn.tui`. It registers the slash commands and the `ctrl+alt:m` binding.
-
-Inside:
-
-- `skills/teach/SKILL.md` — the philosophy and the process
-- `skills/visualize/SKILL.md` — adds a correct, minimal diagram to a lesson when an idea is clearer as a picture
-- `plugins/agents.ts` — `researcher`, `svg-maker`, `mermaid-maker`: the subagents the plugin registers
-- `plugins/quiz.ts` — the graded `quiz_ask` / `quiz_grade` question pair (chat-UI mode via `openchamber_render` with auto-detection; TUI session forms in form mode)
-- `plugins/viz/` (`index.ts`, `tui.ts`, `common.ts`) — the `write_*`/`edit_*`/`render_*` authoring loops the visual makers use (SVG via `rsvg-convert`, fallback ImageMagick; Mermaid via `mmdc`) and the `/viz-dir` TUI command
-- `plugins/md-link/` (`index.ts`, `tui.ts`, `core.ts`) — live-mirrors the session to a markdown file for comfortable reading in Obsidian (assistant replies, your prompts, and quiz Q&A as callouts) plus its TUI commands
-
 ## Install
 
-Requires OpenCode v2. Clone this repo anywhere, then load the package in one of two ways.
-
-**Explicit config entry** — works from any path. Add the package directory to `plugins` in your project `opencode.json(c)` or `~/.config/opencode/opencode.json(c)`:
+Requires OpenCode v2.
 
 ```jsonc
 {
-  "plugins": ["/home/you/code/opencode-learn"],
+  "plugins": ["@leon135/opencode-learn"],
 }
 ```
-
-Relative paths resolve from the config file that contains the entry, and `file://` URLs work too. A single-file path is skipped — point the entry at a directory.
-
-**Auto-discovery** — place the package directory directly inside a discovered plugins directory:
-
-```text
-<project>/.opencode/plugins/opencode-learn/
-~/.config/opencode/plugins/opencode-learn/
-```
-
-Immediate package directories under those locations load automatically. A `plugins/` directory beside a project-root `opencode.json(c)` is **not** discovered automatically — use `.opencode/plugins/` or an explicit entry.
-
-One entry loads both parts. The package's `package.json` `name` + `exports` decide which file is the server part and which is the TUI part, and the TUI part loads from the server plugin's entry — no `cli.json` entry and no per-plugin TUI flag. There is no install step: the plugin is TypeScript source loaded by OpenCode, and its only dependencies are `@opencode/plugin` and `@opencode/client`. Use versions of those packages compatible with the OpenCode release you target, and test the installed package rather than only a linked copy.
 
 Visuals publish into the session project's `viz/` by default — the project dir is captured once when the plugin sets up (`ctx.location.directory`), so publishes resolve against it even if the process cwd differs. To always publish somewhere else (an Obsidian vault, say), run `/viz-dir` in the TUI — or point `~/.config/opencode/viz-state.json` at it directly; the override still wins, and empty or missing means the project dir:
 
@@ -66,7 +33,7 @@ md-link keeps its own state next to it in `~/.config/opencode/md-link-state.json
 
 ## Memory
 
-Teaching spans sessions; session context does not. The `teach` skill keeps a **project-scoped learner profile** at `<project>/.memory/profile.md` — one short file, read in full at session start and updated as the session goes rather than in one dump at the end:
+Teaching spans sessions; session context does not. The `teach` skill keeps a **project-scoped learner profile** at `.memory/profile.md` — one short file, read in full at session start and updated as the session goes rather than in one dump at the end:
 
 - **Known foundations** — per subject: what you reliably hold, and where your edge is
 - **Struggles** — concepts and moves that cost visible effort
@@ -75,11 +42,9 @@ Teaching spans sessions; session context does not. The `teach` skill keeps a **p
 - **How to explain to you** — which analogies and cadence work, and which don't
 - **Active plan / where we left off** — the current plan, stuck point, next-session hook
 
-The file is yours: you can read and edit it, and the skill treats your edits as authoritative. It stays local — `.memory/` is gitignored.
-
 ## Quiz modes
 
-`quiz_ask` has two transports. **Chat-UI mode** returns the question plus a ready `openui-lang` program for `openchamber_render`; [OpenChamber](https://github.com/openchamber/openchamber) renders it, returns the chosen letter(s) and any note, and the model relays them to `quiz_grade(selected, note)`. The question, its details and the lettered option texts all render inside the callout (markdown, so LaTeX works there), while the Choice buttons stay plain letters (A, B, C…); a letter resolves to the shuffled option value through the same letter/value logic as before. Without that tool the result includes a plain-text lettered fallback.
+**Chat-UI mode** returns the question plus a ready `openui-lang` program for `openchamber_render`; [OpenChamber](https://github.com/openchamber/openchamber) renders it, returns the chosen letter(s) and any note, and the model relays them to `quiz_grade(selected, note)`. The question, its details and the lettered option texts all render inside the callout (markdown, so LaTeX works there), while the Choice buttons stay plain letters (A, B, C…); a letter resolves to the shuffled option value through the same letter/value logic as before. Without that tool the result includes a plain-text lettered fallback.
 
 **Form mode** (TUI, and `auto` when chat detection fails) is a hybrid: the session form carries only lettered options (A, B, C…, plus "...?") and a note field, with the fixed title "Quiz — answer the question shown in chat". The full question, its details and the lettered option texts come back in the `quiz_ask` result, which tells the model to post that block as a chat message (markdown; math renders per the TUI's own pipeline). The form opens before that message can appear, so you may see the lettered form first — an accepted ordering wrinkle of the design. Form grading uses the same letter/value resolution as chat.
 
@@ -88,7 +53,10 @@ The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
 ```jsonc
 {
   "plugins": [
-    { "package": "/home/you/code/opencode-learn", "options": { "mode": "auto" } },
+    {
+      "package": "@leon135/opencode-learn",
+      "options": { "mode": "auto" },
+    },
   ],
 }
 ```

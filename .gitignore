@@ -14,7 +14,5 @@ __pycache__/
 .venv/
 
 # Runtime state
-.memory/
 *.log
 .opencode
-/viz/

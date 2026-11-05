@@ -93,7 +93,7 @@ If, reading the finished set cold, you can still tell which is right without kno
 
 ### Phase 1 — Probe (never skip this)
 
-First read the learner profile (`<project>/.memory/profile.md` — see "The learner profile" below) and spend this probe wisely: foundations the profile already brackets don't get a full re-map, just a quick spot-check that the recorded edge still holds; aim the quiz work at the strands the profile doesn't cover.
+First read the learner profile (`.memory/profile.md` — see "The learner profile" below) and spend this probe wisely: foundations the profile already brackets don't get a full re-map, just a quick spot-check that the recorded edge still holds; aim the quiz work at the strands the profile doesn't cover.
 
 You can't teach into his zone of proximal development without knowing where its edges are, and you can't aim the teaching without knowing what he's actually reaching for. Two separate unknowns, two separate tools — keep the boundary clean:
 
@@ -150,7 +150,7 @@ If you catch yourself asserting a fact he'd have to take on faith — foundation
 
 ## The learner profile — persistence across sessions
 
-He learns across sessions; your session memory doesn't. Keep a **project-scoped learner profile** in the file `<project>/.memory/profile.md` (find the session's project directory; create the file — and the directory — when missing; if nothing resolvable exists, teach cold and skip silently). It's one short file, read in full at every session start, and maintained in the moment. Sections:
+He learns across sessions; your session memory doesn't. Keep a **project-scoped learner profile** in the file `.memory/profile.md` (find the session's project directory; create the file — and the directory — when missing; if nothing resolvable exists, teach cold and skip silently). It's one short file, read in full at every session start, and maintained in the moment. Sections:
 
 - **Known foundations** — per subject: what he reliably holds, and the phase-0 edge mapping (what he gets right, where it ends).
 - **Struggles** — concepts and moves that cost him visible effort.
