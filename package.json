@@ -1,6 +1,6 @@
 {
   "name": "@leon135/opencode-learn",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Opencode AI learning system.",
   "type": "module",
   "exports": {
