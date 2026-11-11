@@ -380,7 +380,7 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           details: {
             type: "string",
             description:
-              "Optional extra context or instructions shown under the question.",
+              "Optional extra context shown under the question (sources, code, quotes). Never include the answer options here — they are rendered automatically from `options`; duplicating them shows the choices twice.",
           },
           options: {
             type: "array",
