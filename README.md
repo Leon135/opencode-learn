@@ -48,6 +48,8 @@ Teaching spans sessions; session context does not. The `teach` skill keeps a **p
 
 **Form mode** (TUI, and `auto` when chat detection fails) is a hybrid: the session form carries only lettered options (A, B, C…, plus "...?") and a note field, with the fixed title "Quiz — answer the question shown in chat". The full question, its details and the lettered option texts come back in the `quiz_ask` result, which tells the model to post that block as a chat message (markdown; math renders per the TUI's own pipeline). The form opens before that message can appear, so you may see the lettered form first — an accepted ordering wrinkle of the design. Form grading uses the same letter/value resolution as chat.
 
+**Images.** `quiz_ask` accepts an optional `images` array (local file paths — prefer paths relative to the session's directory; absolute paths outside the workspace may fail to load in chat) for questions that refer to a diagram, figure or screenshot. Because the quiz callout cannot load local images (an OpenChamber renderer limitation), the chat-mode result returns **two ordered blocks**: a plain-chat-message markdown block with the image embeds (post it first, adding nothing) and the `openui-lang` program right after, so the user sees image then question back-to-back. Form mode embeds the images into the posted question block, and the Obsidian mirror carries them in the Q&A callout.
+
 The plugin option `mode` is `"auto"` (default), `"chat"`, or `"form"`:
 
 ```jsonc

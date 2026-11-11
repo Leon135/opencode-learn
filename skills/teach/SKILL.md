@@ -83,6 +83,14 @@ Keep options even — but that rule alone isn't enough, because it's a _post-hoc
 
 If, reading the finished set cold, you can still tell which is right without knowing the material, you skipped step 1 or 2 — regenerate, don't patch.
 
+### Ground quizzes in the source material (when there is one)
+
+When the session has actual material to learn from — a document, textbook excerpt, paper, diagram, or image the user is studying — quiz questions must come from **that material**, not be invented from scratch. The same accuracy rule that forbids winging facts applies to question-writing: paraphrasing source content from memory risks hallucinating it, and it also tests the wrong thing (your reconstruction, not the material the user will actually be tested on).
+
+- **Text**: quote the relevant passage verbatim in the question or `details` (mark it as a quote), so the question tests understanding of the actual text, not of your summary of it.
+- **Diagrams / images**: when the question refers to an image (diagram, figure, screenshot), pass its **local file path** in `quiz_ask`'s `images` parameter — prefer a path **relative to the session's directory** (absolute paths outside the workspace may fail to load in chat). The result comes back as **two ordered blocks**: a plain-chat-message markdown block with the image embeds — post it to the chat first, adding nothing — and the quiz render right after it, so the user sees image then question back-to-back. The quiz callout itself cannot load local images (an OpenChamber renderer limitation); the plain chat message can. Never re-draw or verbally describe a diagram from memory when the original is available — the image _is_ the question. The same rule applies while teaching generally: embed the real diagram in your own chat message with markdown, don't narrate an approximation of it.
+- **Ask about what the material actually shows** — a claim in the text, a step or labeled part in the diagram — rather than about general knowledge it happens to touch.
+
 ### Phase 1 — Probe (never skip this)
 
 First read the learner profile (`.memory/profile.md` — see "The learner profile" below) and spend this probe wisely: foundations the profile already brackets don't get a full re-map, just a quick spot-check that the recorded edge still holds; aim the quiz work at the strands the profile doesn't cover.
@@ -170,6 +178,8 @@ Maintenance moments:
 **Chat-UI transport.** `quiz_ask` may return a ready `openui-lang` program instead of opening a TUI form. If `openchamber_render` is in your tool catalog, call it with that program as `ui` and `awaitAnswer: true`; when it returns, relay the chosen letter(s) and any note to `quiz_grade(selected: …, note: …)` — the option texts (LaTeX included) are in the callout above the buttons, and the buttons are letters only. If you do not have the render tool, present the plain-text fallback from the result (question + lettered options) and relay the user's letter/value(s) to `quiz_grade(selected: …)`. `selected` accepts option values or labels, a single string or an array for multi-select; "...?" is allowed. Never retype or reword the program, and never answer for the user. For math questions, chat-UI mode renders LaTeX (inline `$…$` and display `$$…$$`); in form mode the form is letters only and the posted question message is markdown (no math engine guaranteed in the TUI).
 
 **TUI form transport.** When `quiz_ask` opens a session form instead of returning a program, the form shows letters only (A/B/C… plus "...?") and a note field — the question is not inside it. The result carries the full question block (question, details, lettered option texts): post it to the chat as a message so the user can read it, then follow the result's grading line. The form can appear before your message does (an accepted ordering wrinkle); the user's letter answer still comes back in the result.
+
+**Images render in the TUI too.** Markdown image embeds (`![description](/absolute/path.png)`) render in chat replies, and the OpenCode TUI renders PNG/JPEG/WebP/GIF embeds from the transcript as well. Relative paths work too — the TUI resolves them against the session's location — but absolute is the only form that's unambiguous everywhere.
 
 ### Formatting — math renders as LaTeX
 

@@ -143,8 +143,20 @@ function lettersToIndex(letters: string): number {
 function buildQuestionBlock(
   question: string,
   details: string | undefined,
+  images: string[] = [],
 ): string {
-  return details ? `**Q.** ${question}\n\n${details}` : `**Q.** ${question}`;
+  const body = details
+    ? `**Q.** ${question}\n\n${details}`
+    : `**Q.** ${question}`;
+  if (images.length === 0) return body;
+  const embeds = images.map((src) => `![material](${src})`).join("\n");
+  return `${body}\n\n${embeds}`;
+}
+
+/** Normalized image sources (local file paths); empty array when absent. */
+function normalizeImages(raw: any): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((i) => String(i).trim()).filter(Boolean);
 }
 
 /** The lettered option texts, shared by the chat callout and the form-mode question message. */
@@ -181,6 +193,7 @@ function buildChatAskText(
   details: string | undefined,
   options: QuizOption[],
   multiSelect: boolean,
+  images: string[] = [],
 ): string {
   const questionBlock = buildQuestionBlock(question, details);
   const fallback = options
@@ -189,10 +202,21 @@ function buildChatAskText(
   const how = multiSelect
     ? "Reply with the letters or values of every correct option (for example: A, C)."
     : "Reply with the letter or value of your answer (for example: A).";
+  // The quiz callout renderer cannot load local images, so they go out first
+  // as a plain chat message (which can), back-to-back with the render.
+  const preMessage = images.length
+    ? [
+        "1. FIRST, post this markdown block to the chat as its own plain message — add nothing to it, and follow it immediately with step 2:",
+        "",
+        "```markdown",
+        images.map((src) => `![material](${src})`).join("\n"),
+        "```",
+        "",
+      ]
+    : [];
   return [
-    questionBlock,
-    "",
-    "Render with the openchamber_render tool (pass awaitAnswer) if you have it; otherwise present the plain-text question below to the user.",
+    ...preMessage,
+    `${images.length ? "2. Then," : "Then,"} render with the openchamber_render tool (pass awaitAnswer) if you have it; otherwise present the plain-text question below to the user.`,
     "",
     "```openui-lang",
     buildQuizProgram(question, details, options, multiSelect),
@@ -393,6 +417,12 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
             description:
               "Default true: options are reordered before display. Set false only when order is meaningful.",
           },
+          images: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Optional image sources (local file paths, preferably relative to the session's directory) the question refers to — diagrams, figures, screenshots. Returned as a plain-chat-message markdown block to post right before the quiz render (the quiz callout itself cannot load images).",
+          },
         },
         required: ["question", "options"],
         additionalProperties: false,
@@ -402,6 +432,7 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           const question = String(input.question ?? "").trim();
           const details = String(input.details ?? "").trim() || undefined;
           const multiSelect = input.multiSelect === true;
+          const images = normalizeImages(input.images);
           const sessionID =
             typeof tctx?.sessionID === "string" ? tctx.sessionID : "";
 
@@ -445,6 +476,7 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
                 details,
                 options,
                 multiSelect,
+                images,
               ),
             };
           }
@@ -563,7 +595,7 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           });
 
           let text = [
-            buildQuestionBlock(question, details),
+            buildQuestionBlock(question, details, images),
             buildOptionList(options),
             "The form shows letters only — post the question block above to the chat now so the user can read it.",
             "",

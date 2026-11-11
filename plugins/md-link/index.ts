@@ -116,12 +116,18 @@ function questionCallout(
   question: string,
   details: string | undefined,
   options: any[],
+  images: any[] = [],
 ): string {
   const body: string[] = [];
   for (const line of String(question || "").split("\n")) body.push(line);
   if (details) {
     body.push("");
     for (const line of details.split("\n")) body.push(line);
+  }
+  const imgs = images.map((i) => String(i).trim()).filter(Boolean);
+  if (imgs.length > 0) {
+    body.push("");
+    for (const src of imgs) body.push(`![material](${src})`);
   }
   const opts = Array.isArray(options) ? options : [];
   if (opts.length > 0) {
@@ -269,6 +275,7 @@ export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
             input.question,
             input.details,
             input.options,
+            input.images,
           );
           appendQa(file, `qa-ask-${event.id}`, block, keep);
         } else if (event.tool === "question") {
