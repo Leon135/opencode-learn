@@ -145,12 +145,10 @@ function buildQuestionBlock(
   details: string | undefined,
   images: string[] = [],
 ): string {
-  const body = details
-    ? `**Q.** ${question}\n\n${details}`
-    : `**Q.** ${question}`;
-  if (images.length === 0) return body;
-  const embeds = images.map((src) => `![material](${src})`).join("\n");
-  return `${body}\n\n${embeds}`;
+  // Sources first (scheme, context, image embeds), then the question itself.
+  const parts = [...(details ? [details] : []), `**Q.** ${question}`];
+  if (images.length > 0) parts.push(images.map((src) => `![material](${src})`).join("\n"));
+  return parts.join("\n\n");
 }
 
 /** Normalized image sources (local file paths); empty array when absent. */
@@ -171,9 +169,10 @@ function buildQuizProgram(
   multiSelect: boolean,
 ): string {
   // Option texts live in the callout (markdown renders LaTeX there); the buttons are letters.
+  // Sources (details) come before the question so the material reads first.
   const text = [
-    question,
     ...(details ? [details] : []),
+    question,
     buildOptionList(options),
   ].join("\n\n");
   const choices = options.map((_, i) => letterFor(i));
@@ -222,7 +221,9 @@ function buildChatAskText(
     buildQuizProgram(question, details, options, multiSelect),
     "```",
     "",
-    "Plain-text fallback:",
+    "Plain-text fallback (present this if you have no render tool):",
+    questionBlock,
+    "",
     fallback,
     "...?",
     "",
@@ -626,8 +627,9 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
         "value(s) you intended — single string or array for multi-select, exact-set match) and explanation (why the " +
         "correct answer is correct — always required). In chat mode also relay the user's answer as `selected` and " +
         "any note as `note`; in form mode both come from the form. Returns right/wrong, the correct answer, the " +
-        "user's note, and your explanation; relay all of it to the user. '...?' grades as its own outcome, " +
-        "never as wrong.",
+        "user's note, and your explanation, plus a ready openui-lang program that renders the verdict as a colored " +
+        "callout (success/error/warning) via openchamber_render — without it, relay the verdict as plain text. " +
+        "'...?' grades as its own outcome, never as wrong.",
       input: {
         type: "object",
         properties: {
@@ -733,15 +735,31 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
             .join(", ");
 
           let text: string;
+          let tone: string;
+          let title: string;
           if (dontKnow) {
             text = `User selected "...?" — they did not attempt an answer (a genuine knowledge gap, not a wrong guess).\nCorrect: ${correctStr}`;
+            tone = "warning";
+            title = "Quiz — ...?";
+          } else if (correct) {
+            text = `User answered correctly.\nSelected: ${selectedStr}\nCorrect: ${correctStr}`;
+            tone = "success";
+            title = "Quiz — correct ✓";
           } else {
-            text = `User answered ${correct ? "correctly" : "incorrectly"}.\nSelected: ${selectedStr}\nCorrect: ${correctStr}`;
+            text = `User answered incorrectly.\nSelected: ${selectedStr}\nCorrect: ${correctStr}`;
+            tone = "error";
+            title = "Quiz — incorrect ✗";
           }
           if (note) text += `\nNote: ${note}`;
           if (explanation) text += `\nExplanation: ${explanation}`;
+          const calloutText = text
+            .split("\n")
+            .filter((l) => !/^User answered|^User selected "\.\.\.\?"/.test(l))
+            .join("\n");
           text +=
-            "\nRelay the verdict, the correct answer, and the explanation to the user now.";
+            '\nIf you have the openchamber_render tool, render the program below (no awaitAnswer) to show the verdict as a colored callout; otherwise relay the verdict above to the user as plain text.\n\n```openui-lang\n' +
+            `note = Callout(${JSON.stringify(calloutText)}, "${tone}", ${JSON.stringify(title)})\n` +
+            "root = Stack([note])\n```";
           return { content: text };
         } catch (error) {
           return {

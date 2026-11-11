@@ -151,25 +151,29 @@ function resultText(result: any): string {
 
 /** Feedback callout from quiz_grade's result text (we control that format). */
 function gradeCallout(content: string): string {
-  const lines = content
+  // Drop the render instruction line and the openui-lang program block.
+  const cleaned = content
+    .replace(/```openui-lang[\s\S]*?```/g, "")
     .split("\n")
     .filter(
-      (l) => l.trim().length > 0 && !/^Relay the verdict/i.test(l.trim()),
+      (l) =>
+        l.trim().length > 0 &&
+        !/^If you have the openchamber_render tool/i.test(l.trim()),
     );
-  const first = lines[0] ?? "";
+  const first = cleaned[0] ?? "";
   if (/answered correctly/i.test(first)) {
-    return callout("success", "Quiz — correct ✓", lines.slice(1));
+    return callout("success", "Quiz — correct ✓", cleaned.slice(1));
   }
   if (/answered incorrectly/i.test(first)) {
-    return callout("failure", "Quiz — incorrect ✗", lines.slice(1));
+    return callout("failure", "Quiz — incorrect ✗", cleaned.slice(1));
   }
-  if (/...?/i.test(content)) {
-    return callout("question", "Quiz — ...?", lines.slice(1));
+  if (/selected "\.\.\.\?"/i.test(first)) {
+    return callout("question", "Quiz — ...?", cleaned.slice(1));
   }
   if (/dismissed|not answered in time/i.test(content)) {
     return callout("warning", "Quiz — dismissed", ["(no answer given)"]);
   }
-  return callout("example", "Quiz", lines);
+  return callout("example", "Quiz", cleaned);
 }
 
 export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
