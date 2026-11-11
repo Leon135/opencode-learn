@@ -1,6 +1,6 @@
 ---
 name: teach
-description: Teach the user anything so it actually locks in and is understood, not just memorized. Use ANY time you're explaining or teaching the user something — even a quick explanation. Based on two teaching principles the user has personally verified to work for years.
+description: Teach the user anything so it actually locks in and is understood, not just memorized. Use when explaining or teaching the user something — even a quick explanation.
 ---
 
 # Teaching
@@ -33,7 +33,7 @@ Why start here? **Not** because bottom-up is the logically "correct" order — b
 
 - Find the few hard facts the user can take at face value — often first principles that don't depend on anything else, though they needn't be true roots. There may be very few. That's fine; small and solid beats large and shaky.
 - They must be simple enough to be accepted **as-is, without nuance or caveats**. No "well, usually…". If it needs conditions, it's not an unconditional truth yet — dig down further.
-- These can be committed to _instantly and safely_, because nothing more fundamental will come along to contradict them. That safety is what makes them lock in.
+- These can be committed to _instantly and safely_ — that safety is what makes them lock in.
 - Build everything else up from these, explicitly, so the user can see each new fact resting on the foundation.
 
 **Confirm the foundation before building on it.** Briefly check that each core truth actually reads as obviously/unconditionally true to the user before you add structure on top. If a core truth doesn't feel rock-solid, stop and fix the foundation — don't build on sand.
@@ -74,7 +74,7 @@ The two principles are _how_ you teach. This is _when_ — the shape of a teachi
 
 ### Writing quiz options — a construction procedure (applies to every quiz)
 
-The tool already tells you to keep options even. That rule isn't enough on its own because it's a _post-hoc audit_ — you write a good answer plus some throwaway wrongs, then don't re-scrutinise them. The tell is baked in before any check runs. So don't audit afterwards; **build the options so evenness is automatic**:
+Keep options even — but that rule alone isn't enough, because it's a _post-hoc audit_ — you write a good answer plus some throwaway wrongs, then don't re-scrutinise them. The tell is baked in before any check runs. So don't audit afterwards; **build the options so evenness is automatic**:
 
 1. **Every option is a bare claim — no justification anywhere.** The number-one giveaway is the correct option carrying its own reasoning ("…, because it preserves X") while the distractors are bare, making it longer and more specific. Put _zero_ "why" in any option; all reasoning goes in the `explanation` field, which only appears after the user answers.
 2. **Write the correct claim first, then mutate it into each distractor.** Take one specific misconception or easily-confused neighbour and state what someone holding it would claim — in the _same_ skeleton, grain size, and register as the correct claim. Now every option is "the claim under some belief," and the correct one is just the claim under the _correct_ belief. Parallelism falls out by construction instead of being policed.
@@ -89,7 +89,7 @@ First read the learner profile (`.memory/profile.md` — see "The learner profil
 
 You can't teach into the user's zone of proximal development without knowing where its edges are, and you can't aim the teaching without knowing what the user is actually reaching for. Two separate unknowns, two separate tools — keep the boundary clean:
 
-**1a. The user's current level — use the quiz pair. This is a mapping job, not a spot-check.** Your goal is to locate the _edge_ of the user's understanding — the frontier where what the user reliably knows turns into what the user doesn't — along every strand the planned lesson will depend on. Until you've actually found that edge, you cannot teach into it, so this phase gets as long and detailed as it needs to be. There is no rush.
+**1a. The user's current level — use the quiz pair. This is a mapping job, not a spot-check.** Your goal is to locate the _edge_ of the user's understanding — the frontier where what the user reliably knows turns into what the user doesn't — along every strand the planned lesson will depend on.
 
 **The edge is only located when it's bracketed.** For each relevant strand you need _both_: something at that level the user gets **right** (a floor — proof the user knows at least this much) and something the user gets **wrong** or genuinely doesn't know (a ceiling — where it runs out). The edge sits between them. One side alone tells you almost nothing.
 
