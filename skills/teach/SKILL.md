@@ -93,7 +93,7 @@ When the session has actual material to learn from — a document, textbook exce
 
 ### Phase 1 — Probe (never skip this)
 
-First read the learner profile (`.memory/profile.md` — see "The learner profile" below) and spend this probe wisely: foundations the profile already brackets don't get a full re-map, just a quick spot-check that the recorded edge still holds; aim the quiz work at the strands the profile doesn't cover.
+First read the learner profile (`profile.md`, plus this session's subject file once the subject is known — see "The learner profile" below) and spend this probe wisely: foundations the profile already brackets don't get a full re-map, just a quick spot-check that the recorded edge still holds; aim the quiz work at the strands the profile doesn't cover.
 
 You can't teach into the user's zone of proximal development without knowing where its edges are, and you can't aim the teaching without knowing what the user is actually reaching for. Two separate unknowns, two separate tools — keep the boundary clean:
 
@@ -150,22 +150,28 @@ If you catch yourself asserting a fact the user would have to take on faith — 
 
 ## The learner profile — persistence across sessions
 
-The user learns across sessions; your session memory doesn't. Keep a **project-scoped learner profile** in the file `.memory/profile.md` (find the session's project directory; create the file — and the directory — when missing; if nothing resolvable exists, teach cold and skip silently). It's one short file, read in full at every session start, and maintained in the moment. Sections:
+The user learns across sessions; your session memory doesn't. Keep **project-scoped learner profiles** under `.memory/` (find the session's project directory; create files — and directories — when missing; if nothing resolvable exists, teach cold and skip silently). Two levels:
 
-- **Known foundations** — per subject: what the user reliably holds, and the phase-0 edge mapping (what the user gets right, where it ends).
-- **Struggles** — concepts and moves that cost the user visible effort.
+**`.memory/profile.md` — the general profile.** One short file, read in full at every session start. Sections:
+
+- **How to explain to the user** — communication style that holds across subjects: which analogies, forms, and cadence work, and which don't.
+- **Cross-subject struggles** — struggles and mistake patterns that recur across subjects (general working habits, notation handling, how the user responds under load).
+
+**`.memory/subjects/<topic>.md` — one file per subject.** Name files for the subject (`computer-science.md`, `math.md`, `business.md`). Once the session's subject is known, load the matching file (nearest match by name); create it when missing. Everything subject-specific lives here:
+
+- **Known foundations** — what the user reliably holds in this subject, and the phase-0 edge mapping (what the user gets right, where it ends).
+- **Struggles** — concepts and moves that cost the user visible effort in this subject.
 - **Typical mistakes** — recurring slips and misconceptions, phrased specifically enough to quote back.
 - **Practice queue** — what to drill next and why.
-- **How to explain to the user** — communication style: what analogies/forms/cadence work, what doesn't.
 - **Active plan / where we left off** — the current plan, stuck point, next-session hook.
 
 Maintenance moments:
 
-1. **Session start: read it before Phase 1.** Don't re-quiz what the profile already brackets — verify the recorded edge with a light spot-check, then probe only the uncovered strands.
-2. **Write when the learning happens, not one grand dump at the end:** update the edge right after Phase 1a; record a struggle or mistake pattern the moment it surfaces; after each quiz verdict that corrects your model of the user.
-3. **Session end: bring it current** — struggles surfaced, mistakes made, practice-queue additions, where the plan stands and where to resume.
+1. **Session start: read `profile.md`, then this subject's file as soon as the subject is clear** (usually immediately; otherwise after Phase 1b sets the goal). Don't re-quiz what the files already bracket — verify a recorded edge with a light spot-check, then probe only the uncovered strands.
+2. **Write when the learning happens, not one grand dump at the end** — and into the file it belongs to: update the subject file's edge right after Phase 1a; record a struggle or mistake pattern the moment it surfaces; after each quiz verdict that corrects your model of the user. Cross-subject observations go in `profile.md`; when a subject-level pattern shows up in a second subject, promote it there.
+3. **Session end: bring both files current** — struggles surfaced, mistakes made, practice-queue additions, where the plan stands and where to resume.
 4. Keep entries **short and specific** (bullet + one clause why); revise or delete anything a session contradicted — stale data is worse than none.
-5. **It's the user's file:** the user can read and edit it; treat the user's edits as authoritative.
+5. **They're the user's files:** the user can read and edit them; treat the user's edits as authoritative.
 
 ## Runtime adapters (OpenCode / OpenChamber)
 

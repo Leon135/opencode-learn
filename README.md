@@ -33,14 +33,17 @@ md-link keeps its own state next to it in `~/.config/opencode/md-link-state.json
 
 ## Memory
 
-Teaching spans sessions; session context does not. The `teach` skill keeps a **project-scoped learner profile** at `.memory/profile.md` — one short file, read in full at session start and updated as the session goes rather than in one dump at the end:
+Teaching spans sessions; session context does not. The `teach` skill keeps **project-scoped learner profiles** under `.memory/` — read at session start and updated as the session goes rather than in one dump at the end:
 
-- **Known foundations** — per subject: what you reliably hold, and where your edge is
-- **Struggles** — concepts and moves that cost visible effort
-- **Typical mistakes** — recurring slips, phrased specifically enough to quote back
-- **Practice queue** — what to drill next and why
-- **How to explain to you** — which analogies and cadence work, and which don't
-- **Active plan / where we left off** — the current plan, stuck point, next-session hook
+- **`.memory/profile.md` — the general profile**
+  - **How to explain to you** — which analogies and cadence work, and which don't
+  - **Cross-subject struggles** — struggles and mistake patterns that recur across subjects
+- **`.memory/subjects/<topic>.md` — one file per subject** (e.g. `subjects/math.md`)
+  - **Known foundations** — what you reliably hold, and where your edge is
+  - **Struggles** — concepts and moves that cost visible effort
+  - **Typical mistakes** — recurring slips, phrased specifically enough to quote back
+  - **Practice queue** — what to drill next and why
+  - **Active plan / where we left off** — the current plan, stuck point, next-session hook
 
 ## Quiz modes
 
@@ -101,7 +104,7 @@ New in this repository:
 
 - **Current OpenCode v2 plugin API** — brought up to date with the current `@opencode/plugin` surface: one package entry carrying both the server and TUI parts (replacing FAZuH's symlinking `install.sh`/`uninstall.sh`), session event subscription instead of message polling, and the plugin client instead of spawning `opencode2`. Agents and skills are registered by the plugin itself.
 - **OpenChamber support** — [OpenChamber](https://github.com/openchamber/openchamber)-aware quiz transport: chat-UI mode auto-detects `openchamber_render` and renders the question as an interactive callout with lettered buttons.
-- **Simple memory** — the project-scoped learner profile at `.memory/profile.md`, so the teacher picks up where it left off across sessions. See [Memory](#memory).
+- **Simple memory** — project-scoped learner profiles under `.memory/`: a general profile plus one file per subject, so the teacher picks up where it left off across sessions. See [Memory](#memory).
 
 ## Credits
 
