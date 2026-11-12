@@ -183,17 +183,23 @@ Maintenance moments:
 
 **Chat-UI transport.** `quiz_ask` may return a ready `openui-lang` program instead of opening a TUI form. If `openchamber_render` is in your tool catalog, call it with that program as `ui` and `awaitAnswer: true`; when it returns, relay the chosen letter(s) and any note to `quiz_grade(selected: …, note: …)` — the option texts (LaTeX included) are in the callout above the buttons, and the buttons are letters only. If you do not have the render tool, present the plain-text fallback from the result (question + lettered options) and relay the user's letter/value(s) to `quiz_grade(selected: …)`. `selected` accepts option values or labels, a single string or an array for multi-select; "...?" is allowed. Never retype or reword the program, and never answer for the user. For math questions, chat-UI mode renders LaTeX (inline `$…$` and display `$$…$$`) in the callout's markdown — only the Choice buttons don't render it, and they are letters only anyway; in form mode the form is letters only and the posted question message is markdown (no math engine guaranteed in the TUI). After `quiz_grade`, render its ready `openui-lang` program (no `awaitAnswer` — display only) to show the verdict as a colored callout: green (success) for correct, red (error) for incorrect, warning for "...?".
 
+**Color in your own renders.** The render tool's component guidance lists signatures and tone values but never says tones are colors. Use them for distinguishable sections: `Callout(text, tone, title)` draws a colored callout (`"info"`/`"success"` colored icon only, `"warning"` amber filled banner, `"error"` red filled banner, `"neutral"` plain), and `Badge(text, tone)` a colored chip. Colored callouts in plain chat markdown (outside any render) are a different mechanism — see "Formatting — colored callouts in chat markdown" below.
+
 **TUI form transport.** When `quiz_ask` opens a session form instead of returning a program, the form shows letters only (A/B/C… plus "...?") and a note field — the question is not inside it. The result carries the full question block (question, details, lettered option texts): post it to the chat as a message so the user can read it, then follow the result's grading line. The form can appear before your message does (an accepted ordering wrinkle); the user's letter answer still comes back in the result.
 
 **Images render in the TUI too.** Markdown image embeds (`![description](/absolute/path.png)`) render in chat replies, and the OpenCode TUI renders PNG/JPEG/WebP/GIF embeds from the transcript as well. Relative paths work too — the TUI resolves them against the session's location — but absolute is the only form that's unambiguous everywhere.
 
 ### Formatting — math renders as LaTeX
 
+**Hard constraint — bare numbers never go in `$…$`.** Write `1`, `4`, `1024`. This **overrides** the LaTeX guidance below: wrap only expressions whose rendering changes (`$f(x)$`, `$x^2$`). WRONG: `$1$` RIGHT: `1`. Before sending, scan your text for `$<digits>$` and unwrap it.
+
 Whenever math notation is involved — explanations, questions, quiz options and explanations, anything — write it in LaTeX instead of plain-text approximations:
 
 - Inline math: `$f(x)$`
 - Centered display math: `$$` fenced on its own lines, e.g. `$$\n f(x) \n$$`
 
-If LaTeX can be used, it should be. Write $f(x) = x^2$, not `f(x) = x^2`.
+Use LaTeX where it changes the rendering. Write $f(x) = x^2$, not `f(x) = x^2`.
 
-Never dollar-wrap bare numbers (`$1$`, `$4$`, `$1024$`)
+### Formatting — colored callouts in chat markdown
+
+A blockquote alert (`> [!warning] Title`, every line of the block prefixed with `>`) renders as a colored callout in chat replies — border and title line take the color, the body stays ordinary text. Only five kinds are colored: `note` (blue), `tip` (green), `important`, `warning` (amber), `caution` (red). `[!error]` is not a kind — use `[!caution]` for red; any other name renders as a plain quote. Inside an `openchamber_render` block this does not apply — use `Callout`/`Badge` tones there (see "Color in your own renders").
