@@ -32,6 +32,7 @@ import {
   disableSession,
   hasBlock,
   isEnabled,
+  isSettled,
   loadState,
   messageText,
   mirrorFile,
@@ -90,15 +91,14 @@ function extractArg(input: unknown): string {
  * the first already-mirrored marker, so a live event that won the race never
  * produces a duplicate block.
  *
- * Replies still streaming when the toggle fires are skipped: their
- * time.created is too recent, and live ordinals will finish them anyway.
+ * Replies still streaming when the toggle fires are skipped (isSettled):
+ * live events finish those, and a history copy would duplicate them.
  */
 async function backfillLatestTurn(
   client: OpenCodeClient,
   sessionID: string,
   file: string,
   keep: number | null,
-  enabledAt: number,
 ): Promise<number> {
   let written = 0
   try {
@@ -110,8 +110,7 @@ async function backfillLatestTurn(
     const pending: { id: string; text: string }[] = []
     for (const m of items) {
       if (m.type !== "assistant" && m.type !== "user") continue
-      const created = Number(m.time?.created ?? 0)
-      if (m.type === "assistant" && created && enabledAt - created < 15_000) continue // likely still streaming
+      if (!isSettled(m)) continue
       const text = messageText(m)
       if (!text) continue
       if (hasBlock(file, m.id)) break // already mirrored — everything older is too
@@ -181,7 +180,7 @@ export async function setupMdLinkTui(ctx: Plugin.Context): Promise<Plugin.Cleanu
       st.sessions[sessionID] = res.abs
       saveState(st)
       touchMirror(file)
-      const backfilled = await backfillLatestTurn(ctx.client, sessionID, file, st.keep, Date.now())
+      const backfilled = await backfillLatestTurn(ctx.client, sessionID, file, st.keep)
       const tag = st.persist ? " (persistent)" : ""
       toast(
         backfilled > 0

@@ -23,7 +23,6 @@
 import type { Plugin } from "@opencode/plugin";
 import {
   appendMessage,
-  assistantKey,
   callout,
   isEnabled,
   loadState,
@@ -37,7 +36,7 @@ const DELTA_WRITE_MS = 2_500;
 /** Wait before re-subscribing after the event stream exits unexpectedly. */
 const RESUBSCRIBE_MS = 5_000;
 
-/** Append one block, keeping the existing text when the key is already mirrored. */
+/** Upsert one block: rewrites it when the same key is already mirrored. */
 function mirrorBlock(
   file: string,
   key: string,
@@ -184,7 +183,7 @@ export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
         return;
       }
 
-      const key = assistantKey(event.data.assistantMessageID, event.data.ordinal, file);
+      const key = `${event.data.assistantMessageID}#${event.data.ordinal}`;
       if (event.type === "session.text.delta") {
         const entry = inflight.get(key) ?? { text: "", written: 0 };
         entry.text += event.data.delta;

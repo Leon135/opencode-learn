@@ -1,6 +1,7 @@
 import { homedir } from "node:os"
 import { isAbsolute } from "node:path"
 import type { Plugin } from "@opencode/plugin"
+import { sanitizeDirInput } from "../paths.ts"
 import {
   applyEdit,
   currentBody,
@@ -55,7 +56,11 @@ export async function setupViz(ctx: Plugin.Context): Promise<void> {
   function resolvePublishDir(): string {
     try {
       const st = JSON.parse(readFileSync(VIZ_STATE_FILE, "utf8"))
-      const configured = typeof st?.defaultDir === "string" ? st.defaultDir.trim() : ""
+      const raw = typeof st?.defaultDir === "string" ? st.defaultDir.trim() : ""
+      // Sanitize at read time too: a "~/..." value saved before the dialog
+      // gained expansion would otherwise publish into <project>/~/...
+      const sanitized = raw ? sanitizeDirInput(raw) : null
+      const configured = sanitized?.ok ? sanitized.value : ""
       if (configured) {
         return isAbsolute(configured) ? configured : join(projectDir, configured)
       }

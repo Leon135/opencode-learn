@@ -4,8 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   appendMessage,
-  assistantKey,
   hasBlock,
+  isSettled,
   pruneMirror,
   touchMirror,
 } from "../plugins/md-link/core.ts"
@@ -73,6 +73,14 @@ test("pruneMirror keeps only the newest N blocks", () => {
   expect(readFileSync(file, "utf-8")).not.toContain("msg3")
 })
 
+test("pruneMirror is a no-op at exactly keep blocks", () => {
+  fresh()
+  for (let i = 1; i <= 3; i++) appendMessage(file, { text: `msg${i}`, markerKey: `k${i}` }, null)
+  pruneMirror(file, 3)
+  expect(blocks()).toHaveLength(3)
+  expect(readFileSync(file, "utf-8")).toContain("msg1")
+})
+
 test("appendMessage prunes when keep is set", () => {
   fresh()
   for (let i = 1; i <= 3; i++) appendMessage(file, { text: `msg${i}`, markerKey: `k${i}` }, 2)
@@ -80,17 +88,11 @@ test("appendMessage prunes when keep is set", () => {
   expect(readFileSync(file, "utf-8")).not.toContain("msg1")
 })
 
-test("assistantKey reuses the backfill block for the first live part", () => {
-  fresh()
-  appendMessage(file, { text: "partial", markerKey: "A#backfill" }, null)
-  expect(assistantKey("A", 0, file)).toBe("A#backfill")
-  expect(assistantKey("A", 1, file)).toBe("A#1")
-})
-
-test("assistantKey uses the plain ordinal key when no backfill exists", () => {
-  fresh()
-  expect(assistantKey("A", 0, file)).toBe("A#0")
-  expect(assistantKey("A", 2, file)).toBe("A#2")
+test("isSettled: a reply is backfillable only once the provider finished it", () => {
+  expect(isSettled({ type: "assistant", time: { created: 1 } })).toBe(false)
+  expect(isSettled({ type: "assistant", time: { created: 1, completed: 2 } })).toBe(true)
+  expect(isSettled({ type: "assistant" })).toBe(false)
+  expect(isSettled({ type: "user", time: { created: 1 } })).toBe(true)
 })
 
 test("pruneMirror and appendMessage tolerate an empty file", () => {

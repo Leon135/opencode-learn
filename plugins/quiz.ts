@@ -59,7 +59,7 @@ export type PendingQuiz = {
   details?: string;
   /** Form pendings carry the selection shape; chat pendings carry "chat". */
   mode: "single-select" | "multi-select" | "chat";
-  /** Display order (post-shuffle), 1-based. */
+  /** Display order (1-based); the teacher's input order unless shuffle was requested. */
   options: QuizOption[];
   status: "asked" | "answered" | "cancelled" | "timeout";
   selectedIndices: number[];
@@ -233,7 +233,7 @@ function buildChatAskText(
   ].join("\n");
 }
 
-/** Chat mode: resolve the relayed answer against the shuffled options (values, labels or letters). */
+/** Chat mode: resolve the relayed answer against the displayed options (values, labels or letters). */
 export function resolveSelected(
   pq: PendingQuiz,
   raw: unknown,

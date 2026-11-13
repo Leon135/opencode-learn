@@ -159,21 +159,18 @@ export function hasBlock(file: string, key: string): boolean {
 }
 
 /**
- * Live-event marker key for an assistant message part. Part 0 reuses the
- * mid-stream backfill block (see tui.ts backfillLatestTurn) when one exists,
- * so toggling the mirror ON while a reply is still streaming cannot leave
- * the same reply written twice.
+ * True when a history item is safe to backfill: user prompts always, replies
+ * only after the provider finished them (a streaming reply is mirrored by the
+ * live events instead, so writing it here would duplicate it).
  */
-export function assistantKey(messageID: string, ordinal: number, file: string): string {
-  return ordinal === 0 && hasBlock(file, `${messageID}#backfill`)
-    ? `${messageID}#backfill`
-    : `${messageID}#${ordinal}`
+export function isSettled(m: any): boolean {
+  return m?.type !== "assistant" || Boolean(m?.time?.completed)
 }
 
 /**
  * Append one reply block, deduped/upserted by markerKey, then prune to `keep`.
  * With replace=true, an existing block for the same key is rewritten when its
- * text differs (used by the poller while replies are still streaming).
+ * text differs (used while a reply is still streaming).
  * Block format (see module doc): marker comment, local HH:MM, blank line, text.
  */
 export function appendMessage(
