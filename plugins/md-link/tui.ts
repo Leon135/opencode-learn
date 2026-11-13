@@ -24,9 +24,9 @@
 
 import { accessSync, constants as fsConstants, existsSync, readFileSync, rmSync, statSync } from "fs"
 import { isAbsolute, join, normalize } from "path"
-import { homedir } from "os"
 import type { OpenCodeClient } from "@opencode/client"
 import type { Plugin } from "@opencode/plugin/tui"
+import { sanitizeDirInput } from "../paths.ts"
 import {
   appendMessage,
   disableSession,
@@ -49,12 +49,10 @@ const MAX_CATCHUP = 10
 
 /** Validate a user-supplied output dir. Must already exist and be writable. */
 function validateDir(raw: string, pwd: string): DirResult {
-  let d = String(raw ?? "").trim().replace(/^["']+|["']+$/g, "")
-  if (d.startsWith("~")) d = join(homedir(), d.slice(1))
+  const s = sanitizeDirInput(String(raw ?? ""))
+  if (!s.ok) return s
+  let d = s.value
   if (d.length === 0) d = "."
-  if (d.includes("\0")) return { ok: false, error: "invalid path" }
-  if (d.split("/").includes("..")) return { ok: false, error: "path may not contain '..'" }
-  if (!/^[A-Za-z0-9 ._\-\/]+$/.test(d)) return { ok: false, error: `unsupported characters in "${d}"` }
 
   const abs = isAbsolute(d) ? normalize(d) : normalize(join(pwd, d))
   try {

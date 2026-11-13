@@ -18,6 +18,7 @@ import { readFileSync, writeFileSync } from "fs"
 import { homedir } from "node:os"
 import { isAbsolute, join } from "node:path"
 import type { Plugin } from "@opencode/plugin/tui"
+import { sanitizeDirInput } from "../paths.ts"
 
 type DirResult = { ok: true; value: string } | { ok: false; error: string }
 type ToastVariant = "info" | "success" | "warning" | "error"
@@ -37,15 +38,13 @@ function saveState(st: { defaultDir: string }): void {
   writeFileSync(STATE_FILE, JSON.stringify(st, null, 2), "utf8")
 }
 
-/** Light validation: publish creates the dir, so it only has to be sane. */
+/** Light validation: publish creates the dir, so it only has to be sane.
+ * A leading `~` is already expanded by the shared sanitizer, so the stored
+ * value is never a literal `~…` path. */
 function validateDir(raw: string): DirResult {
-  const v = String(raw ?? "").trim().replace(/^["']+|["']+$/g, "")
-  if (v.includes("\0")) return { ok: false, error: "invalid path" }
-  if (v.split("/").includes("..")) return { ok: false, error: "path may not contain '..'" }
-  if (v.length > 0 && !/^[A-Za-z0-9 ._\-\/~]+$/.test(v)) {
-    return { ok: false, error: `unsupported characters in "${v}"` }
-  }
-  return { ok: true, value: v }
+  const s = sanitizeDirInput(String(raw ?? ""))
+  if (!s.ok) return s
+  return { ok: true, value: s.value }
 }
 
 export async function setupVizTui(ctx: Plugin.Context): Promise<void> {
