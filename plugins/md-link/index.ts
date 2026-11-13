@@ -23,8 +23,8 @@
 import type { Plugin } from "@opencode/plugin";
 import {
   appendMessage,
+  assistantKey,
   callout,
-  hasBlock,
   isEnabled,
   loadState,
   mirrorFile,
@@ -44,19 +44,9 @@ function mirrorBlock(
   text: string,
   keep: number | null,
 ): void {
-  if (!text || hasBlock(file, key)) return;
-  appendMessage(file, { text, markerKey: key, replace: true }, keep);
-}
-
-/** Write an assistant block, rewriting the existing one in place while streaming. */
-function writeAssistant(
-  file: string,
-  key: string,
-  text: string,
-  keep: number | null,
-): void {
   if (!text) return;
-  appendMessage(file, { text, markerKey: key, replace: true }, keep);
+  if (appendMessage(file, { text, markerKey: key, replace: true }, keep) === "failed")
+    console.error("[md-link] append failed:", key);
 }
 
 /** The subset of the session event stream this plugin mirrors. */
@@ -100,17 +90,6 @@ function mirrorFor(sessionID: unknown): string | null {
   return mirrorFile(st, sessionID, process.cwd());
 }
 
-function appendQa(
-  file: string,
-  markerKey: string,
-  text: string,
-  keep: number | null,
-): void {
-  const res = appendMessage(file, { text, markerKey, replace: true }, keep);
-  // "duplicate" is the expected steady state on service restarts / re-reads.
-  if (res === "failed") console.error("[md-link] qa append failed:", markerKey);
-}
-
 function questionCallout(
   label: string,
   question: string,
@@ -151,10 +130,11 @@ function resultText(result: any): string {
 
 /** Feedback callout from quiz_grade's result text (we control that format). */
 export function gradeCallout(content: string): string {
-  // Outcome tone lives in the generated program's Callout() args; the title is the first text line.
-  const tone = content.match(
-    /,\s*"(success|error|warning)",\s*"(?:[^"\\]|\\.)*"\)/,
-  )?.[1];
+  // Outcome tone lives in the generated program's Callout() args — the program is the last element, so take the
+  // last match: the raw note/explanation copy above it can otherwise spoof the type.
+  const tone = [
+    ...content.matchAll(/,\s*"(success|error|warning)",\s*"(?:[^"\\]|\\.)*"\)/g),
+  ].at(-1)?.[1];
   // Drop the render instruction line and the openui-lang program block; keep blank lines (paragraph breaks).
   const cleaned = content
     .replace(/```openui-lang[\s\S]*?```/g, "")
@@ -200,23 +180,18 @@ export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
         if (item.type !== "user") return;
         const text = String(item.payload.text ?? "").trim();
         if (text)
-          mirrorBlock(
-            file,
-            `${event.data.inboxID}`,
-            userPromptBlock(text),
-            st.keep,
-          );
+          mirrorBlock(file, `${event.data.inboxID}`, userPromptBlock(text), st.keep);
         return;
       }
 
-      const key = `${event.data.assistantMessageID}#${event.data.ordinal}`;
+      const key = assistantKey(event.data.assistantMessageID, event.data.ordinal, file);
       if (event.type === "session.text.delta") {
         const entry = inflight.get(key) ?? { text: "", written: 0 };
         entry.text += event.data.delta;
         const now = Date.now();
         if (now - entry.written >= DELTA_WRITE_MS) {
           entry.written = now;
-          writeAssistant(file, key, entry.text.trim(), st.keep);
+          mirrorBlock(file, key, entry.text.trim(), st.keep);
         }
         inflight.set(key, entry);
         return;
@@ -224,7 +199,7 @@ export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
 
       // session.text.ended: final text for the part, written immediately.
       inflight.delete(key);
-      writeAssistant(file, key, event.data.text.trim(), st.keep);
+      mirrorBlock(file, key, event.data.text.trim(), st.keep);
     } catch {} // one bad event must not stop the subscription
   };
 
@@ -285,7 +260,7 @@ export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
             input.options,
             input.images,
           );
-          appendQa(file, `qa-ask-${event.id}`, block, keep);
+          mirrorBlock(file, `qa-ask-${event.id}`, block, keep);
         } else if (event.tool === "question") {
           const q = event.input?.questions?.[0] ?? {};
           const block = questionCallout(
@@ -294,7 +269,7 @@ export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
             undefined,
             q.options,
           );
-          appendQa(file, `qa-ask-${event.id}`, block, keep);
+          mirrorBlock(file, `qa-ask-${event.id}`, block, keep);
         }
       } catch {}
     });
@@ -308,11 +283,11 @@ export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
         if (event.tool === "quiz_grade") {
           const content = resultText(event.result);
           if (content)
-            appendQa(file, `qa-grade-${event.id}`, gradeCallout(content), keep);
+            mirrorBlock(file, `qa-grade-${event.id}`, gradeCallout(content), keep);
         } else if (event.tool === "question" && event.status === "completed") {
           const content = resultText(event.result);
           if (content)
-            appendQa(
+            mirrorBlock(
               file,
               `qa-grade-${event.id}`,
               callout("example", "Answer", content.split("\n")),

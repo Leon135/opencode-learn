@@ -28,7 +28,8 @@
  *     <reply text>
  *
  * The server re-reads the state file on every event so TUI toggles apply
- * instantly; writers use read-modify-write to stay concurrency-safe.
+ * instantly. Writers are read-modify-write on tiny local files: interleaved
+ * writes from server and TUI are possible and accepted at this scale.
  */
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync, appendFileSync } from "fs"
@@ -89,12 +90,6 @@ export function saveState(st: MdLinkState): void {
 
 export function isEnabled(st: MdLinkState, sessionID: string): boolean {
   return sessionID in st.sessions
-}
-
-/** Add a session (read-modify-write). Preserves any dir already recorded. */
-export function enableSession(st: MdLinkState, sessionID: string, dir = ""): void {
-  if (!(sessionID in st.sessions)) st.sessions[sessionID] = dir
-  saveState(st)
 }
 
 /** Remove a session (read-modify-write). */
@@ -164,6 +159,18 @@ export function hasBlock(file: string, key: string): boolean {
 }
 
 /**
+ * Live-event marker key for an assistant message part. Part 0 reuses the
+ * mid-stream backfill block (see tui.ts backfillLatestTurn) when one exists,
+ * so toggling the mirror ON while a reply is still streaming cannot leave
+ * the same reply written twice.
+ */
+export function assistantKey(messageID: string, ordinal: number, file: string): string {
+  return ordinal === 0 && hasBlock(file, `${messageID}#backfill`)
+    ? `${messageID}#backfill`
+    : `${messageID}#${ordinal}`
+}
+
+/**
  * Append one reply block, deduped/upserted by markerKey, then prune to `keep`.
  * With replace=true, an existing block for the same key is rewritten when its
  * text differs (used by the poller while replies are still streaming).
@@ -171,19 +178,17 @@ export function hasBlock(file: string, key: string): boolean {
  */
 export function appendMessage(
   file: string,
-  opts: { text: string; markerKey?: string | null; replace?: boolean },
+  opts: { text: string; markerKey: string; replace?: boolean },
   keep: number | null,
 ): AppendResult {
-  const key = opts.markerKey ?? null
+  const key = opts.markerKey
   try {
-    if (key && hasBlock(file, key)) {
+    if (hasBlock(file, key)) {
       if (!opts.replace) return "duplicate"
       return replaceBlock(file, key, opts.text) ? "updated" : "duplicate"
     }
-    if (key === null && hasBlockLoose(file, opts.text)) return "duplicate"
     const time = clock()
-    const marker = key ? `<!-- msg:${key} -->\n` : ""
-    appendFileSync(file, `${marker}**${time}**\n\n${opts.text.trim()}\n\n`, "utf-8")
+    appendFileSync(file, `<!-- msg:${key} -->\n**${time}**\n\n${opts.text.trim()}\n\n`, "utf-8")
     pruneMirror(file, keep)
     return "written"
   } catch {
@@ -191,25 +196,26 @@ export function appendMessage(
   }
 }
 
-function hasBlockLoose(file: string, text: string): boolean {
-  try {
-    return readFileSync(file, "utf-8").includes(text.trim().slice(0, 80))
-  } catch {
-    return false
-  }
-}
-
 function clock(): string {
   return new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
 }
 
+/** Split a mirror file's content into its (usually empty) head and its reply blocks. */
+function splitBlocks(content: string): { head: string; blocks: string[] } {
+  const first = content.search(/<!-- msg:/)
+  if (first === -1) return { head: content, blocks: [] }
+  return {
+    head: content.slice(0, first),
+    blocks: content
+      .slice(first)
+      .split(/(?=<!-- msg:)/g)
+      .filter((b) => b.trim().length > 0),
+  }
+}
+
 /** Rewrite an existing block's text in place. Returns false if unchanged/not found. */
 function replaceBlock(file: string, key: string, text: string): boolean {
-  const c = readFileSync(file, "utf-8")
-  const first = c.search(/<!-- msg:/)
-  if (first === -1) return false
-  const head = c.slice(0, first)
-  const blocks = c.slice(first).split(/(?=<!-- msg:)/g).filter((b) => b.trim().length > 0)
+  const { head, blocks } = splitBlocks(readFileSync(file, "utf-8"))
   const idx = blocks.findIndex((b) => b.startsWith(`<!-- msg:${key}`))
   if (idx === -1) return false
   const fresh = `<!-- msg:${key} -->\n**${clock()}**\n\n${text.trim()}\n\n`
@@ -224,14 +230,7 @@ function replaceBlock(file: string, key: string, text: string): boolean {
 export function pruneMirror(file: string, keep: number | null): void {
   try {
     if (!keep || keep < 1) return
-    const c = readFileSync(file, "utf-8")
-    const first = c.search(/<!-- msg:/)
-    if (first === -1) return
-    const head = c.slice(0, first)
-    const blocks = c
-      .slice(first)
-      .split(/(?=<!-- msg:)/g)
-      .filter((b) => b.trim().length > 0)
+    const { head, blocks } = splitBlocks(readFileSync(file, "utf-8"))
     if (blocks.length <= keep) return
     writeFileSync(file, head + blocks.slice(-keep).join(""), "utf-8")
   } catch {}

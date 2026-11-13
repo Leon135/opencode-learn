@@ -310,7 +310,8 @@ export async function setupMdLinkTui(ctx: Plugin.Context): Promise<Plugin.Cleanu
       saveState(st)
     } catch {}
   }
-  // belt-and-braces: host cleanup covers normal exit; this covers hard exits
+  // covers a normal exit; a kill signal bypasses both this and the host
+  // cleanup — accepted at this scale
   try { process.once("exit", cleanupOnExit) } catch {}
 
   // ——— registration (callable directly from setup; removed on deactivate) ———

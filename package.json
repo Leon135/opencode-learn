@@ -27,7 +27,8 @@
   },
   "homepage": "https://github.com/leon135/opencode-learn#readme",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
   },
   "publishConfig": {
     "access": "public"
