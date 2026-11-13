@@ -54,7 +54,7 @@ type QuizOption = {
 };
 
 /** Per-session pending quiz state between quiz_ask and quiz_grade. */
-type PendingQuiz = {
+export type PendingQuiz = {
   question: string;
   details?: string;
   /** Form pendings carry the selection shape; chat pendings carry "chat". */
@@ -68,6 +68,8 @@ type PendingQuiz = {
 };
 
 const pendingKey = (sessionID: string) => `quiz:pending:${sessionID}`;
+/** A verdict the model still has to render; quiz_ask refuses once while it waits. */
+const verdictKey = (sessionID: string) => `quiz:verdict:${sessionID}`;
 
 type StorageJson = Parameters<Plugin.Context["storage"]["set"]>[1];
 
@@ -232,7 +234,7 @@ function buildChatAskText(
 }
 
 /** Chat mode: resolve the relayed answer against the shuffled options (values, labels or letters). */
-function resolveSelected(
+export function resolveSelected(
   pq: PendingQuiz,
   raw: unknown,
 ): { indices: number[]; dontKnow: boolean } | { error: string } {
@@ -334,6 +336,15 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
     })());
   const storePending = (sessionID: string, value: PendingQuiz) =>
     ctx.storage.set(pendingKey(sessionID), value as unknown as StorageJson);
+  const storeVerdict = (sessionID: string, content: string) =>
+    ctx.storage.set(verdictKey(sessionID), { content } as StorageJson);
+
+  if (typeof ctx.tool?.hook === "function") {
+    await ctx.tool.hook("execute.after", async (event) => {
+      if (event.tool === CHAT_UI_TOOL && event.status === "completed")
+        await ctx.storage.remove(verdictKey(event.sessionID));
+    });
+  }
 
   const mode = readMode(ctx);
   const chatUITools = new Map<string, boolean>();
@@ -416,7 +427,7 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           shuffle: {
             type: "boolean",
             description:
-              "Default true: options are reordered before display. Set false only when order is meaningful.",
+              "Default false (options stay in your order, so the Obsidian mirror numbering matches the verdict letters). Set true to reorder before display.",
           },
           images: {
             type: "array",
@@ -445,6 +456,19 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
                 "quiz_ask failed: no session context (sessionID missing).",
             };
 
+          const unrendered = (await ctx.storage.get(verdictKey(sessionID))) as
+            | { content?: string }
+            | undefined;
+          if (unrendered?.content) {
+            await ctx.storage.remove(verdictKey(sessionID));
+            return {
+              content:
+                "quiz_ask blocked: the previous verdict was never rendered. " +
+                "Render it now with openchamber_render (no awaitAnswer), then call quiz_ask again.\n\n" +
+                unrendered.content,
+            };
+          }
+
           let options: QuizOption[];
           try {
             options = normalizeOptions(input.options);
@@ -456,7 +480,7 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
               content: "quiz_ask failed: at least two options are required.",
             };
 
-          if (input.shuffle !== false) options = shuffleOptions(options);
+          if (input.shuffle === true) options = shuffleOptions(options);
 
           if (
             mode === "chat" ||
@@ -626,7 +650,8 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
         "Grade the quiz the user just answered via quiz_ask. REQUIRED afterwards: pass correctAnswer (the option " +
         "value(s) you intended — single string or array for multi-select, exact-set match) and explanation (why the " +
         "correct answer is correct — always required). In chat mode also relay the user's answer as `selected` and " +
-        "any note as `note`; in form mode both come from the form. Returns right/wrong, the correct answer, the " +
+        "any note as `note`; in form mode both come from the form. Also pass `title`: a short (max 4 words) " +
+        "reaction phrase in the learner's language for the verdict callout. Returns right/wrong, the correct answer, the " +
         "user's note, and your explanation, plus a ready openui-lang program that renders the verdict as a colored " +
         "callout (success/error/warning) via openchamber_render — without it, relay the verdict as plain text. " +
         "'...?' grades as its own outcome, never as wrong.",
@@ -659,6 +684,11 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
             description:
               "REQUIRED. Why the correct answer is correct — shown to the user after answering.",
           },
+          title: {
+            type: "string",
+            description:
+              "Short reaction phrase for the verdict title, in the language the learner is using — informal, 2-4 words (e.g. \"well done mate\", \"nah this aint it\", \"dobrze\", \"ziomuś nie tak\"). No ✓/✗/? symbols; the plugin prefixes \"Quiz - \". Optional — omit it and the title is just \"Quiz\".",
+          },
         },
         required: ["correctAnswer", "explanation"],
         additionalProperties: false,
@@ -679,20 +709,22 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
                 "quiz_grade failed: no pending quiz — call quiz_ask first.",
             };
 
-          await ctx.storage.remove(pendingKey(sessionID));
-
           let selectedIndices: number[];
           let dontKnow: boolean;
           let note: string | undefined;
           if (pq.mode === "chat") {
             const resolved = resolveSelected(pq, input.selected);
             if ("error" in resolved)
-              return { content: `quiz_grade failed: ${resolved.error}` };
+              return {
+                content: `quiz_grade failed: ${resolved.error} Fix \`selected\` and call quiz_grade again.`,
+              };
             selectedIndices = resolved.indices;
             dontKnow = resolved.dontKnow;
             note = String(input.note ?? "").trim() || pq.note;
           } else {
             if (pq.status !== "answered") {
+              // The quiz is closed either way — drop the pending state.
+              await ctx.storage.remove(pendingKey(sessionID));
               return {
                 content: `Quiz was ${pq.status === "cancelled" ? "dismissed by the user" : "not answered in time"} — no grade. Correct answer for your reference: ask again later if needed.`,
               };
@@ -721,45 +753,43 @@ export async function setupQuiz(ctx: Plugin.Context): Promise<void> {
           const uniqCorrect = Array.from(new Set(correctIndices)).sort(
             (a, b) => a - b,
           );
+          // Everything that could fail is resolved — only now consume the pending quiz.
+          await ctx.storage.remove(pendingKey(sessionID));
 
           const correct =
             !dontKnow &&
             selectedIndices.length === uniqCorrect.length &&
             selectedIndices.every((v, i) => v === uniqCorrect[i]);
 
-          const selectedStr =
-            selectedIndices.map((i) => optionRef(pq.options, i)).join(", ") ||
-            "(none)";
           const correctStr = uniqCorrect
             .map((i) => optionRef(pq.options, i))
             .join(", ");
 
-          let text: string;
-          let tone: string;
-          let title: string;
-          if (dontKnow) {
-            text = `User selected "...?" — they did not attempt an answer (a genuine knowledge gap, not a wrong guess).\nCorrect: ${correctStr}`;
-            tone = "warning";
-            title = "Quiz — ...?";
-          } else if (correct) {
-            text = `User answered correctly.\nSelected: ${selectedStr}\nCorrect: ${correctStr}`;
-            tone = "success";
-            title = "Quiz — correct ✓";
-          } else {
-            text = `User answered incorrectly.\nSelected: ${selectedStr}\nCorrect: ${correctStr}`;
-            tone = "error";
-            title = "Quiz — incorrect ✗";
+          const phrase = String(input.title ?? "")
+            .replace(/[✓✗?]/g, "")
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 4)
+            .join(" ");
+          const calloutTitle = phrase ? `Quiz - ${phrase}` : "Quiz";
+          const tone = dontKnow ? "warning" : correct ? "success" : "error";
+          const lines: string[] = [];
+          if (!dontKnow && !correct && selectedIndices.length > 0) {
+            lines.push(
+              `✗ ${selectedIndices.map((i) => optionRef(pq.options, i)).join(", ")}`,
+            );
           }
-          if (note) text += `\nNote: ${note}`;
-          if (explanation) text += `\nExplanation: ${explanation}`;
-          const calloutText = text
-            .split("\n")
-            .filter((l) => !/^User answered|^User selected "\.\.\.\?"/.test(l))
-            .join("\n");
+          if (dontKnow) lines.push("?");
+          lines.push(`✓ ${correctStr}`);
+          let calloutText = lines.join("\n\n");
+          if (note) calloutText += `\n\n> ${note}`;
+          if (explanation) calloutText += `\n\n${explanation}`;
+          let text = `${calloutTitle}\n\n${calloutText}`;
           text +=
-            '\nIf you have the openchamber_render tool, render the program below (no awaitAnswer) to show the verdict as a colored callout; otherwise relay the verdict above to the user as plain text.\n\n```openui-lang\n' +
-            `note = Callout(${JSON.stringify(calloutText)}, "${tone}", ${JSON.stringify(title)})\n` +
+            '\nIf you have the openchamber_render tool, render the program below (no awaitAnswer) to show the verdict as a colored callout; otherwise relay the verdict above to the user as plain text. A "...?" verdict means the user did not attempt an answer (a genuine knowledge gap, not a wrong guess).\n\n```openui-lang\n' +
+            `note = Callout(${JSON.stringify(calloutText)}, "${tone}", ${JSON.stringify(calloutTitle)})\n` +
             "root = Stack([note])\n```";
+          if (pq.mode === "chat") await storeVerdict(sessionID, text);
           return { content: text };
         } catch (error) {
           return {

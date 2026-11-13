@@ -150,30 +150,34 @@ function resultText(result: any): string {
 }
 
 /** Feedback callout from quiz_grade's result text (we control that format). */
-function gradeCallout(content: string): string {
-  // Drop the render instruction line and the openui-lang program block.
+export function gradeCallout(content: string): string {
+  // Outcome tone lives in the generated program's Callout() args; the title is the first text line.
+  const tone = content.match(
+    /,\s*"(success|error|warning)",\s*"(?:[^"\\]|\\.)*"\)/,
+  )?.[1];
+  // Drop the render instruction line and the openui-lang program block; keep blank lines (paragraph breaks).
   const cleaned = content
     .replace(/```openui-lang[\s\S]*?```/g, "")
     .split("\n")
-    .filter(
-      (l) =>
-        l.trim().length > 0 &&
-        !/^If you have the openchamber_render tool/i.test(l.trim()),
+    .filter((l) => !/^If you have the openchamber_render tool/i.test(l.trim()));
+  const idx = cleaned.findIndex((l) => l.trim().length > 0);
+  const title = (cleaned[idx] ?? "").trim() || "Quiz";
+  const body = cleaned.slice(idx + 1);
+  if (tone === "success" || tone === "error" || tone === "warning") {
+    return callout(
+      tone === "success" ? "success" : tone === "error" ? "failure" : "question",
+      title,
+      body,
     );
-  const first = cleaned[0] ?? "";
-  if (/answered correctly/i.test(first)) {
-    return callout("success", "Quiz — correct ✓", cleaned.slice(1));
-  }
-  if (/answered incorrectly/i.test(first)) {
-    return callout("failure", "Quiz — incorrect ✗", cleaned.slice(1));
-  }
-  if (/selected "\.\.\.\?"/i.test(first)) {
-    return callout("question", "Quiz — ...?", cleaned.slice(1));
   }
   if (/dismissed|not answered in time/i.test(content)) {
     return callout("warning", "Quiz — dismissed", ["(no answer given)"]);
   }
-  return callout("example", "Quiz", cleaned);
+  return callout(
+    "example",
+    "Quiz",
+    cleaned.filter((l) => l.trim().length > 0),
+  );
 }
 
 export async function setupMdLink(ctx: Plugin.Context): Promise<() => void> {
